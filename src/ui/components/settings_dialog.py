@@ -1,22 +1,27 @@
 from __future__ import annotations
 
 import os
+import sys
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
     QDoubleSpinBox,
     QFormLayout,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLineEdit,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QVBoxLayout,
+    QWidget,
 )
 
 from src.config import Config
@@ -38,7 +43,12 @@ class SettingsDialog(QDialog):
         self._load_current_settings()
 
     def _setup_ui(self) -> None:
-        layout = QVBoxLayout(self)
+        # Scrollable content so the dialog never overflows small screens;
+        # the Save/Cancel row stays fixed at the bottom.
+        outer = QVBoxLayout(self)
+        content = QWidget()
+        content.setObjectName("settingsContent")  # so it picks up the dark theme
+        layout = QVBoxLayout(content)
 
         # --- API Settings ---
         api_group = QGroupBox("API Settings")
@@ -47,7 +57,16 @@ class SettingsDialog(QDialog):
         self._api_key_input = QLineEdit()
         self._api_key_input.setEchoMode(QLineEdit.Password)
         self._api_key_input.setPlaceholderText("sk-...")
-        api_layout.addRow("OpenAI API Key:", self._api_key_input)
+        self._show_key_btn = QPushButton("Show")
+        self._show_key_btn.setObjectName("compact")
+        self._test_key_btn = QPushButton("Test")
+        self._test_key_btn.setObjectName("compact")
+        self._test_key_btn.setToolTip("Check the key against OpenAI without saving.")
+        key_row = QHBoxLayout()
+        key_row.addWidget(self._api_key_input)
+        key_row.addWidget(self._show_key_btn)
+        key_row.addWidget(self._test_key_btn)
+        api_layout.addRow("OpenAI API Key:", key_row)
 
         self._model_combo = QComboBox()
         self._model_combo.addItems(["gpt-4o", "gpt-4o-mini"])
@@ -128,6 +147,7 @@ class SettingsDialog(QDialog):
         self._realtime_check = QCheckBox(
             "Live transcription — transcribe while speaking (experimental)"
         )
+        self._realtime_check.setObjectName("experimental")  # amber-tinted label
         transcription_layout.addRow(self._realtime_check)
 
         transcription_group.setLayout(transcription_layout)
@@ -184,7 +204,16 @@ class SettingsDialog(QDialog):
         vocab_group.setLayout(vocab_layout)
         layout.addWidget(vocab_group)
 
-        # --- Buttons ---
+        layout.addStretch()
+
+        # Put all the groups above inside a scroll area.
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
+
+        # --- Buttons (fixed below the scroll area) ---
         btn_layout = QHBoxLayout()
         self._save_btn = QPushButton("Save")
         self._save_btn.setObjectName("primary")  # accent-filled primary action
@@ -192,10 +221,12 @@ class SettingsDialog(QDialog):
         btn_layout.addStretch()
         btn_layout.addWidget(self._save_btn)
         btn_layout.addWidget(self._cancel_btn)
-        layout.addLayout(btn_layout)
+        outer.addLayout(btn_layout)
 
         self._save_btn.clicked.connect(self._save)
         self._cancel_btn.clicked.connect(self.reject)
+        self._show_key_btn.clicked.connect(self._toggle_key_visibility)
+        self._test_key_btn.clicked.connect(self._test_api_key)
 
         # Tooltips for the non-obvious settings
         self._whisper_model_combo.setToolTip(
@@ -232,6 +263,8 @@ class SettingsDialog(QDialog):
         # Style — dark theme with readable labels and a single accent (mic blue)
         self.setStyleSheet("""
             QDialog { background-color: #262626; }
+            QScrollArea { border: none; background-color: #262626; }
+            QWidget#settingsContent { background-color: #262626; }
             QLabel { color: #e8e8e8; }
             QLabel:disabled { color: #777; }
             QGroupBox {
@@ -260,15 +293,23 @@ class SettingsDialog(QDialog):
             QCheckBox::indicator:checked {
                 background-color: #4FC3F7; border-color: #4FC3F7; }
             QCheckBox::indicator:hover { border-color: #4FC3F7; }
+            QCheckBox#experimental { color: #e0a030; }
             QPushButton {
                 background-color: #3d3d3d; color: #ffffff;
                 border: 1px solid #5a5a5a; padding: 7px 22px; border-radius: 5px; }
             QPushButton:hover { background-color: #4a4a4a; }
+            QPushButton#compact { padding: 5px 12px; }
             QPushButton#primary {
                 background-color: #4FC3F7; color: #062430;
                 font-weight: bold; border: none; }
             QPushButton#primary:hover { background-color: #6fd0fb; }
         """)
+
+        # Open tall enough to show all content; the scroll bar only appears if
+        # that would exceed the available screen height.
+        screen = QApplication.primaryScreen().availableGeometry()
+        wanted_h = content.sizeHint().height() + 90  # + buttons row & margins
+        self.resize(480, min(wanted_h, screen.height() - 80))
 
     def _update_dependent_states(self) -> None:
         """Enable only the settings relevant to the current selections."""
@@ -279,6 +320,58 @@ class SettingsDialog(QDialog):
         self._realtime_check.setEnabled(not is_local)
         # Silence timeout only matters when auto-stop is on.
         self._silence_timeout_spin.setEnabled(self._auto_stop_check.isChecked())
+
+    def _toggle_key_visibility(self) -> None:
+        """Show/hide the API key text."""
+        if self._api_key_input.echoMode() == QLineEdit.Password:
+            self._api_key_input.setEchoMode(QLineEdit.Normal)
+            self._show_key_btn.setText("Hide")
+        else:
+            self._api_key_input.setEchoMode(QLineEdit.Password)
+            self._show_key_btn.setText("Show")
+
+    def _test_api_key(self) -> None:
+        """Validate the entered key against OpenAI without saving it."""
+        key = self._api_key_input.text().strip()
+        if not key:
+            QMessageBox.warning(self, "Test API Key", "Enter an API key first.")
+            return
+        self._test_key_btn.setEnabled(False)
+        self._test_key_btn.setText("Testing…")
+        QApplication.processEvents()
+        try:
+            from openai import OpenAI
+            OpenAI(api_key=key, timeout=8.0, max_retries=0).models.list()
+            QMessageBox.information(self, "Test API Key", "The key works.")
+        except Exception as e:
+            QMessageBox.warning(self, "Test API Key", f"Key test failed:\n{e}")
+        finally:
+            self._test_key_btn.setEnabled(True)
+            self._test_key_btn.setText("Test")
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._apply_dark_titlebar()
+
+    def _apply_dark_titlebar(self) -> None:
+        """Darken the native Windows title bar to match the dark theme."""
+        if sys.platform != "win32":
+            return
+        try:
+            import ctypes
+            from ctypes import wintypes
+            set_attr = ctypes.windll.dwmapi.DwmSetWindowAttribute
+            # Explicit argtypes so the 64-bit window handle isn't truncated.
+            set_attr.argtypes = [
+                wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD
+            ]
+            hwnd = int(self.winId())
+            value = ctypes.c_int(1)
+            # DWMWA_USE_IMMERSIVE_DARK_MODE = 20 (19 on older Windows 10 builds)
+            for attr in (20, 19):
+                set_attr(hwnd, attr, ctypes.byref(value), ctypes.sizeof(value))
+        except Exception:
+            pass
 
     def _load_current_settings(self) -> None:
         """Populate fields from current config."""
