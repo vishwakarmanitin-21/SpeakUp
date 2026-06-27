@@ -6,11 +6,17 @@ Voice AI productivity tool that converts speech into structured, intelligent tex
 
 - **Push-to-Talk Recording** — Hold `Ctrl+Win` to record, release to process (configurable hotkey)
 - **Auto-Stop on Silence** — Optional RMS-based silence detection with configurable threshold and timeout
-- **Speech-to-Text** — OpenAI Whisper API (cloud) or faster-whisper (local, offline); switchable per-session in Settings
-- **7 AI Rewrite Modes** — Clean Grammar, Structured Notes, PRD, Professional Email, LinkedIn Post, Developer Comment, Brain Dump
+- **Speech-to-Text** — OpenAI cloud (`gpt-4o-mini-transcribe` by default, `gpt-4o-transcribe` or legacy `whisper-1` selectable) or faster-whisper (local, offline); switchable per-session in Settings
+- **Disfluency Cleanup** — Every mode strips filler words ("um", "uh", "like"), false starts, and repetitions, resolves self-corrections ("Tuesday — no, Wednesday" → "Wednesday"), and adds punctuation/paragraphs — turning a raw transcript into the text you *meant* to write, while preserving your wording and tone
+- **Inline Voice Commands** — Speak formatting instructions and they're applied, not typed: "new paragraph", "bullet that", "numbered list", "scratch that", "quote that", "in caps"
+- **Smart Auto-Format Mode** — Default mode detects the app you're dictating into (chat, email, code editor, document, browser) and matches the right tone and structure automatically — casual in Slack, email shape in Gmail, a code comment in VS Code
+- **Personal Dictionary** — Add your names, jargon, and acronyms (e.g. Vestora, WealQuest, Supabase); these bias the speech recogniser and correct phonetic near-misses so proper nouns keep their exact spelling
+- **7 Manual Rewrite Modes** — Clean Grammar, Structured Notes, PRD, Professional Email, LinkedIn Post, Developer Comment, Brain Dump (override Smart mode any time)
 - **Context Awareness** — Includes clipboard content, selected text, rolling session memory (last 10 interactions), and optionally the active VS Code file
 - **VS Code File Context** — Detects the active file in VS Code from the window title, locates it on disk, and includes its content as context (Windows, opt-in)
+- **Streaming Output** — In auto-paste mode the rewrite is inserted at the cursor in sentence-sized chunks as it's generated, so text starts appearing almost immediately instead of after the whole response completes — reliable even on long passages (toggle in Settings)
 - **Smart Output** — Auto-paste at cursor (default), copy to clipboard, or preview window with Copy/Insert/Close buttons
+- **Clipboard-Safe Paste** — Auto-paste restores whatever you had on the clipboard after pasting, so dictation never silently overwrites it; opt in to keep the dictated text on the clipboard via Settings
 - **Desktop Overlay** — Minimal floating PyQt5 widget with mic button (3 visual states), mode selector, status indicator, and settings gear; configurable position (bottom-right, bottom-left, bottom-center) and size (compact, normal, large)
 - **Compact Mode** — Wispr Flow-style minimal bar that expands on hover to reveal controls; collapses back when mouse leaves
 - **Settings Panel** — Configure API keys, GPT model, Whisper model, transcription provider (cloud/local), local model size, hotkey, output mode, widget position/size, auto-start, context toggles, silence timeout; all changes hot-reload immediately
@@ -34,7 +40,7 @@ Voice AI productivity tool that converts speech into structured, intelligent tex
 | Layer | Choice |
 |-------|--------|
 | Desktop UI | Python 3.12 + PyQt5 |
-| Speech-to-Text | OpenAI Whisper API (cloud) or faster-whisper (local/offline) |
+| Speech-to-Text | OpenAI cloud (`gpt-4o-mini-transcribe` / `gpt-4o-transcribe` / `whisper-1`) or faster-whisper (local/offline) |
 | AI Rewriting | OpenAI GPT-4o-mini (default) / GPT-4o |
 | Global Hotkeys | pynput (press/release detection, Windows key support) |
 | Audio Recording | sounddevice (16kHz mono, in-memory BytesIO) |
@@ -107,6 +113,7 @@ python scripts/build.py
 
 | Mode | Description |
 |------|-------------|
+| Smart (auto-format) | **Default.** Cleans up speech, then formats it for the active app's surface (chat / email / editor / document) |
 | Clean & Fix Grammar | Fix grammar and punctuation, preserve meaning |
 | Structured Notes | Convert to headings and bullet points |
 | Convert to PRD | Generate Vision / Features / User Flow / Tech sections |
@@ -119,10 +126,12 @@ Each mode has a dedicated system prompt engineered in `src/rewrite/prompts.py`.
 
 ## AI Prompt Design
 
-- **System prompt**: Voice thinking assistant persona
-- **Mode-specific prompts**: Each of the 7 modes has a carefully tuned prompt
-- **Context injection**: Clipboard, selected text, and session history are included when available
-- Built with `build_user_prompt()` helper that assembles transcription + context
+- **System prompt**: Balanced cleanup engine — removes disfluencies and resolves self-corrections while preserving the speaker's meaning, voice, and register (never invents content or over-formalises)
+- **Mode-specific prompts**: Smart mode plus 7 manually-selectable modes, each carefully tuned
+- **Surface adaptation**: Smart mode injects the active app's surface (chat / email / editor / document / browser) so tone and format match the destination
+- **Personal dictionary**: Known terms are passed to the transcription model as a recognition hint and listed in the rewrite prompt for spelling correction
+- **Context injection**: Clipboard, selected text, session history, and the active VS Code file are included when available
+- Built with `build_user_prompt()` helper that assembles transcription + mode + app hint + vocabulary + context
 
 ## Architecture
 
@@ -213,13 +222,18 @@ Settings can be changed via the gear icon on the overlay or by editing `config.j
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `gpt_model` | `gpt-4o-mini` | GPT model for rewriting |
-| `whisper_model` | `whisper-1` | Cloud Whisper model (used when provider=cloud) |
-| `temperature` | `0.3` | AI creativity level (0-2) |
+| `whisper_model` | `gpt-4o-transcribe` | Cloud speech model (used when provider=cloud): `gpt-4o-transcribe` (most accurate), `gpt-4o-mini-transcribe` (faster), or legacy `whisper-1` |
+| `temperature` | `0.2` | AI creativity level (0-2); low favours faithful cleanup |
+| `default_rewrite_mode` | `smart` | Mode selected on launch (`smart` auto-formats per active app) |
+| `custom_vocabulary` | `[]` | Personal dictionary of names/jargon/acronyms; biases transcription and corrects spelling |
 | `hotkey` | `ctrl+cmd` | Push-to-talk hotkey (Ctrl+Win) |
 | `output_mode` | `auto_paste` | Output: `auto_paste`, `clipboard`, or `preview` |
+| `stream_output` | `true` | Type the rewrite word-by-word at the cursor as it streams (auto-paste mode only) |
+| `keep_on_clipboard` | `false` | Keep dictated text on the clipboard after auto-paste; when `false`, the previous clipboard contents are restored |
 | `auto_stop_on_silence` | `false` | Stop recording after silence |
 | `silence_timeout_ms` | `2000` | Silence duration before auto-stop |
 | `transcription_provider` | `cloud` | `cloud` (OpenAI Whisper API) or `local` (faster-whisper) |
+| `transcription_realtime` | `false` | **Experimental.** Stream audio over the OpenAI Realtime API to transcribe *while you speak* (lowest latency). Requires `pip install -e ".[realtime]"`; falls back to standard transcription on any failure |
 | `whisper_local_model_size` | `base` | Local model: `tiny`, `base`, `small`, `medium`, `large` |
 | `include_vscode_file` | `false` | Include active VS Code file content as context (Windows) |
 | `widget_position` | `bottom_right` | Widget position: `bottom_right`, `bottom_left`, or `bottom_center` |

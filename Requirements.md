@@ -33,7 +33,6 @@
 - [ ] Speaker diarization
 - [ ] Custom tone training
 - [ ] Persistent memory profile
-- [ ] App-specific intelligence
 - [ ] Mobile companion app
 - [ ] WhatsApp integration
 - [ ] Notion direct posting
