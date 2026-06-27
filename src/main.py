@@ -4,7 +4,6 @@ import asyncio
 import os
 import sys
 import time
-from pathlib import Path
 
 from src.audio.recorder import AudioRecorder
 from src.audio.silence_detector import SilenceDetector
@@ -38,7 +37,7 @@ def _ensure_api_key() -> bool:
         return False
 
     os.environ["OPENAI_API_KEY"] = key
-    env_path = Path(__file__).resolve().parent.parent / ".env"
+    env_path = Config().env_path
     # Append or create .env with the key
     with open(env_path, "a", encoding="utf-8") as f:
         f.write(f"\nOPENAI_API_KEY={key}\n")

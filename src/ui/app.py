@@ -106,10 +106,9 @@ def _check_api_key() -> bool:
         api_key = text.strip()
         os.environ["OPENAI_API_KEY"] = api_key
 
-        # Write to .env file
-        from pathlib import Path
-
-        env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+        # Write to .env file (use the config-resolved path so it lands next to
+        # the exe when frozen, not in the temporary PyInstaller extract dir).
+        env_path = Config().env_path
         with open(env_path, "w", encoding="utf-8") as f:
             f.write(f"OPENAI_API_KEY={api_key}\n")
 
@@ -164,6 +163,16 @@ def run_app() -> None:
     # Give overlay a reference so Settings can update the hotkey live
     overlay.set_hotkey_listener(hotkey)
 
+
+    # Log unhandled exceptions in async tasks so they don't vanish silently
+    def _handle_exception(loop_ref, context):
+        exc = context.get("exception")
+        if exc:
+            logger.error("Unhandled async exception: %s", exc, exc_info=exc)
+        else:
+            logger.error("Unhandled async error: %s", context.get("message"))
+
+    loop.set_exception_handler(_handle_exception)
 
     logger.info("FlowAI GUI started. Hotkey: %s", config.hotkey)
     print(f"FlowAI GUI started. Hotkey: {config.hotkey}")

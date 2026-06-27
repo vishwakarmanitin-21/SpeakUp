@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import logging
 import time
 from typing import Callable
+
+logger = logging.getLogger("flowai")
 
 from src.audio.recorder import AudioRecorder
 from src.audio.silence_detector import SilenceDetector
 from src.config import Config
 from src.context.context_builder import ContextBuilder
 from src.context.session_memory import SessionMemory
-from src.output.inserter import OutputInserter
+from src.output.inserter import OutputInserter, OutputMode
 from src.rewrite.engine import RewriteEngine
 from src.rewrite.modes import RewriteMode
 from src.transcription.factory import get_transcription_client
@@ -40,6 +43,12 @@ class Pipeline:
         self._on_state_change: Callable[[str], None] | None = None
         self._on_silence_detected: Callable[[], None] | None = None
         self._cancelled = False
+        # Active app at dictation time — drives Smart-mode formatting.
+        self._active_app: tuple[str, str] = ("", "general")
+        # Experimental realtime (transcribe-while-speaking) state.
+        self._realtime = None
+        self._realtime_task = None
+        self._use_realtime = False
 
         # Wire silence detection into audio callback
         self._config = config
@@ -76,8 +85,34 @@ class Pipeline:
     def start_recording(self) -> None:
         self._cancelled = False
         self._silence_detector.reset()
+        # Capture the foreground app now — by rewrite time focus may have moved.
+        try:
+            from src.context.active_window import detect_active_app
+            self._active_app = detect_active_app()
+        except Exception:
+            self._active_app = ("", "general")
+
         self._set_state(PipelineState.RECORDING)
-        self._recorder.start()
+
+        # Experimental: start streaming to the Realtime API (transcribe while
+        # speaking). On any failure we fall back to normal batch recording.
+        self._use_realtime = False
+        self._realtime = None
+        self._realtime_task = None
+        import asyncio
+        if self._config.transcription_realtime:
+            try:
+                from src.transcription.realtime_client import RealtimeTranscriber
+                self._realtime = RealtimeTranscriber()
+                self._realtime_task = asyncio.ensure_future(self._realtime.start())
+                self._use_realtime = True
+            except Exception as e:
+                logger.warning("Realtime unavailable, using batch transcription: %s", e)
+                self._use_realtime = False
+                self._realtime = None
+
+        if not self._use_realtime:
+            self._recorder.start()
 
     def stop_recording(self) -> None:
         self._recorder.stop()
@@ -87,6 +122,14 @@ class Pipeline:
         self._cancelled = True
         if self._recorder.is_recording:
             self._recorder.stop()
+        if self._realtime is not None:
+            import asyncio
+            try:
+                asyncio.ensure_future(self._realtime.close())
+            except Exception:
+                pass
+            self._realtime = None
+            self._use_realtime = False
         self._set_state(PipelineState.IDLE)
 
     async def process(
@@ -105,6 +148,11 @@ class Pipeline:
         """
         self._cancelled = False
         _start = time.monotonic()
+        config = Config()
+        logger.info(
+            "Pipeline run: mode=%s, model=%s, provider=%s",
+            mode.value, config.gpt_model, config.transcription_provider,
+        )
         try:
             # 1. Build context from clipboard, selection, session memory, VS Code
             context = self._context_builder.build()
@@ -112,18 +160,64 @@ class Pipeline:
                 self._set_state(PipelineState.IDLE)
                 return "", ""
 
-            # 2. Transcribe — pick client from config (cloud or local)
+            # 2. Transcribe — realtime (experimental) or batch (cloud/local)
             self._set_state(PipelineState.TRANSCRIBING)
-            wav_bytes = self._recorder.get_wav_bytes()
-            whisper = get_transcription_client()
-            raw_text = await whisper.transcribe(wav_bytes)
+            if self._use_realtime and self._realtime is not None:
+                try:
+                    if self._realtime_task is not None:
+                        await self._realtime_task  # ensure connected + streaming
+                    raw_text = await self._realtime.stop_and_transcribe()
+                except Exception as e:
+                    logger.error("Realtime transcription failed: %s", e)
+                    try:
+                        await self._realtime.close()
+                    except Exception:
+                        pass
+                    from src.services.error_handler import TranscriptionError
+                    raise TranscriptionError(
+                        f"Realtime transcription failed: {e}",
+                        "Live transcription failed. Turn off 'Live transcription' "
+                        "in Settings to use the standard mode.",
+                    ) from e
+                finally:
+                    self._use_realtime = False
+                    self._realtime = None
+            else:
+                wav_bytes = self._recorder.get_wav_bytes()
+                whisper = get_transcription_client()
+                raw_text = await whisper.transcribe(wav_bytes)
+            logger.info("Transcription: %d words (%d chars)", len(raw_text.split()), len(raw_text))
             if self._cancelled:
                 self._set_state(PipelineState.IDLE)
                 return "", ""
 
-            # 3. Rewrite
+            # 3. Rewrite — stream-and-type for auto-paste (low perceived latency),
+            #    otherwise generate the full text for clipboard/preview delivery.
             self._set_state(PipelineState.REWRITING)
-            rewritten = await self._rewriter.rewrite(raw_text, mode, context)
+            effective_output = output_mode or config.output_mode
+            stream_output = (
+                config.stream_output and effective_output == OutputMode.AUTO_PASTE
+            )
+
+            if stream_output:
+                chunks: list[str] = []
+                self._inserter.begin_stream()
+                try:
+                    async for delta in self._rewriter.rewrite_stream(
+                        raw_text, mode, context, app_hint=self._active_app
+                    ):
+                        if self._cancelled:
+                            break
+                        chunks.append(delta)
+                        self._inserter.feed_stream(delta)
+                finally:
+                    self._inserter.end_stream()
+                rewritten = "".join(chunks)
+            else:
+                rewritten = await self._rewriter.rewrite(
+                    raw_text, mode, context, app_hint=self._active_app
+                )
+            logger.info("Rewrite: %d words (%d chars)", len(rewritten.split()), len(rewritten))
             if self._cancelled:
                 self._set_state(PipelineState.IDLE)
                 return "", ""
@@ -131,11 +225,11 @@ class Pipeline:
             # 4. Store in session memory
             self._session_memory.add(raw_text, rewritten, mode.value)
 
-            # 5. Deliver output
-            self._inserter.deliver(rewritten, output_mode)
+            # 5. Deliver output (streaming already typed it at the cursor)
+            if not stream_output:
+                self._inserter.deliver(rewritten, output_mode)
 
             # 6. Record usage analytics (non-blocking, best-effort)
-            config = Config()
             if config.track_usage:
                 try:
                     from src.services.usage_tracker import record_run
@@ -149,9 +243,12 @@ class Pipeline:
                 except Exception:
                     pass
 
+            elapsed = time.monotonic() - _start
+            logger.info("Pipeline complete in %.1fs", elapsed)
             self._set_state(PipelineState.DONE)
             return raw_text, rewritten
 
-        except Exception:
+        except Exception as exc:
+            logger.error("Pipeline error: %s", exc, exc_info=True)
             self._set_state(PipelineState.ERROR)
             raise

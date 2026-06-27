@@ -81,6 +81,13 @@ class Config:
         """Reload config from disk (call after settings change to hot-reload)."""
         self._load()
 
+    # --- Paths ---
+
+    @property
+    def env_path(self) -> Path:
+        """Location of the .env file (next to the exe when frozen, else project root)."""
+        return _PROJECT_ROOT / ".env"
+
     # --- API Keys (from environment) ---
 
     @property
@@ -99,15 +106,27 @@ class Config:
 
     @property
     def whisper_model(self) -> str:
-        return self._get("whisper_model", "whisper-1")
+        return self._get("whisper_model", "gpt-4o-transcribe")
 
     @property
     def gpt_model(self) -> str:
-        return self._get("gpt_model", "gpt-4o")
+        return self._get("gpt_model", "gpt-4o-mini")
 
     @property
     def temperature(self) -> float:
-        return float(self._get("temperature", 0.3))
+        return float(self._get("temperature", 0.2))
+
+    @property
+    def custom_vocabulary(self) -> list[str]:
+        """User's personal dictionary (names, jargon, acronyms).
+
+        Used to bias transcription and to correct phonetic near-misses during
+        the rewrite so proper nouns keep their exact spelling.
+        """
+        value = self._get("custom_vocabulary", [])
+        if isinstance(value, str):
+            value = [v.strip() for v in value.replace("\n", ",").split(",")]
+        return [v for v in value if v]
 
     # --- Audio Settings ---
 
@@ -127,17 +146,35 @@ class Config:
 
     @property
     def hotkey(self) -> str:
-        return self._get("hotkey", "ctrl+shift+space")
+        return self._get("hotkey", "ctrl+cmd")
 
     # --- Behavior ---
 
     @property
     def default_rewrite_mode(self) -> str:
-        return self._get("default_rewrite_mode", "clean_grammar")
+        return self._get("default_rewrite_mode", "smart")
 
     @property
     def output_mode(self) -> str:
-        return self._get("output_mode", "clipboard")
+        return self._get("output_mode", "auto_paste")
+
+    @property
+    def stream_output(self) -> bool:
+        """Stream the rewrite and type it word-by-word at the cursor.
+
+        Only applies to auto-paste output; clipboard/preview need the full text.
+        Greatly reduces perceived latency (text appears as it's written).
+        """
+        return bool(self._get("stream_output", True))
+
+    @property
+    def keep_on_clipboard(self) -> bool:
+        """Whether to leave the dictated text on the clipboard after auto-paste.
+
+        Default False — the previous clipboard contents are restored after
+        pasting so dictation does not silently overwrite what the user had copied.
+        """
+        return bool(self._get("keep_on_clipboard", False))
 
     # --- Context Toggles ---
 
@@ -163,6 +200,15 @@ class Config:
     def transcription_provider(self) -> str:
         """'cloud' (OpenAI Whisper API) or 'local' (faster-whisper)."""
         return self._get("transcription_provider", "cloud")
+
+    @property
+    def transcription_realtime(self) -> bool:
+        """Experimental: stream audio over the OpenAI Realtime API while speaking.
+
+        Opt-in. Requires the 'realtime' extra (websockets). When the realtime
+        path fails, the pipeline falls back to the standard cloud transcription.
+        """
+        return bool(self._get("transcription_realtime", False))
 
     @property
     def whisper_local_model_size(self) -> str:

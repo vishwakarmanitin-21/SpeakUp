@@ -23,6 +23,9 @@ dev = [
 local = [
     "faster-whisper>=1.0",
 ]
+realtime = [
+    "websockets>=12",
+]
 
 [project.scripts]
 flowai = "src.main:main"

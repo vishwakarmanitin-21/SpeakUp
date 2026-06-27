@@ -29,13 +29,19 @@ class WhisperClient:
         """
         from src.services.error_handler import TranscriptionError
 
+        # Bias recognition toward the user's custom vocabulary (names, jargon).
+        kwargs: dict = {
+            "model": self._model,
+            "file": audio_buffer,
+            "language": "en",
+            "response_format": "text",
+        }
+        vocab = Config().custom_vocabulary
+        if vocab:
+            kwargs["prompt"] = "Terms: " + ", ".join(vocab)
+
         try:
-            response = await self._client.audio.transcriptions.create(
-                model=self._model,
-                file=audio_buffer,
-                language="en",
-                response_format="text",
-            )
+            response = await self._client.audio.transcriptions.create(**kwargs)
             return response.strip()
         except Exception as e:
             raise TranscriptionError(

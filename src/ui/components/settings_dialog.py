@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLineEdit,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
@@ -53,8 +54,10 @@ class SettingsDialog(QDialog):
         api_layout.addRow("GPT Model:", self._model_combo)
 
         self._whisper_model_combo = QComboBox()
-        self._whisper_model_combo.addItems(["whisper-1"])
-        api_layout.addRow("Whisper Model:", self._whisper_model_combo)
+        self._whisper_model_combo.addItems(
+            ["gpt-4o-transcribe", "gpt-4o-mini-transcribe", "whisper-1"]
+        )
+        api_layout.addRow("Speech Model (cloud):", self._whisper_model_combo)
 
         self._temperature_spin = QDoubleSpinBox()
         self._temperature_spin.setRange(0.0, 2.0)
@@ -87,6 +90,16 @@ class SettingsDialog(QDialog):
         self._auto_stop_check = QCheckBox("Auto-stop on silence")
         behavior_layout.addRow(self._auto_stop_check)
 
+        self._keep_clipboard_check = QCheckBox(
+            "Keep dictated text on clipboard after pasting"
+        )
+        behavior_layout.addRow(self._keep_clipboard_check)
+
+        self._stream_output_check = QCheckBox(
+            "Stream output (insert text as it's written)"
+        )
+        behavior_layout.addRow(self._stream_output_check)
+
         self._auto_start_check = QCheckBox("Start FlowAI with Windows")
         behavior_layout.addRow(self._auto_start_check)
 
@@ -111,6 +124,11 @@ class SettingsDialog(QDialog):
         self._local_model_combo = QComboBox()
         self._local_model_combo.addItems(["tiny", "base", "small", "medium", "large"])
         transcription_layout.addRow("Local Model Size:", self._local_model_combo)
+
+        self._realtime_check = QCheckBox(
+            "Live transcription — transcribe while speaking (experimental)"
+        )
+        transcription_layout.addRow(self._realtime_check)
 
         transcription_group.setLayout(transcription_layout)
         layout.addWidget(transcription_group)
@@ -152,6 +170,19 @@ class SettingsDialog(QDialog):
 
         context_group.setLayout(context_layout)
         layout.addWidget(context_group)
+
+        # --- Personal Dictionary ---
+        vocab_group = QGroupBox("Personal Dictionary")
+        vocab_layout = QVBoxLayout()
+        self._vocab_edit = QPlainTextEdit()
+        self._vocab_edit.setPlaceholderText(
+            "Names, jargon, acronyms — comma or newline separated "
+            "(e.g. Vestora, WealQuest, Supabase, Nitin)"
+        )
+        self._vocab_edit.setFixedHeight(70)
+        vocab_layout.addWidget(self._vocab_edit)
+        vocab_group.setLayout(vocab_layout)
+        layout.addWidget(vocab_group)
 
         # --- Buttons ---
         btn_layout = QHBoxLayout()
@@ -217,6 +248,8 @@ class SettingsDialog(QDialog):
 
         # Behavior
         self._auto_stop_check.setChecked(self._config.auto_stop_on_silence)
+        self._keep_clipboard_check.setChecked(self._config.keep_on_clipboard)
+        self._stream_output_check.setChecked(self._config.stream_output)
         self._silence_timeout_spin.setValue(self._config.silence_timeout_ms)
 
         # Auto-start (read actual registry state)
@@ -234,6 +267,8 @@ class SettingsDialog(QDialog):
         if idx >= 0:
             self._local_model_combo.setCurrentIndex(idx)
 
+        self._realtime_check.setChecked(self._config.transcription_realtime)
+
         # Widget appearance
         for i in range(self._position_combo.count()):
             if self._position_combo.itemData(i) == self._config.widget_position:
@@ -250,9 +285,21 @@ class SettingsDialog(QDialog):
         self._include_memory_check.setChecked(self._config.include_session_memory)
         self._include_vscode_check.setChecked(self._config.include_vscode_file)
 
+        # Personal dictionary
+        self._vocab_edit.setPlainText(", ".join(self._config.custom_vocabulary))
+
     def _save(self) -> None:
         """Validate and save settings."""
         new_hotkey = self._hotkey_input.text().strip() or self._config.hotkey
+
+        # Parse the personal dictionary (comma- or newline-separated, deduped).
+        raw_vocab = self._vocab_edit.toPlainText().replace("\n", ",")
+        vocab: list[str] = []
+        for term in raw_vocab.split(","):
+            term = term.strip()
+            if term and term not in vocab:
+                vocab.append(term)
+
         overrides = {
             "gpt_model": self._model_combo.currentText(),
             "whisper_model": self._whisper_model_combo.currentText(),
@@ -261,13 +308,17 @@ class SettingsDialog(QDialog):
             "default_rewrite_mode": self._default_mode_combo.currentData(),
             "output_mode": self._output_mode_combo.currentData(),
             "auto_stop_on_silence": self._auto_stop_check.isChecked(),
+            "keep_on_clipboard": self._keep_clipboard_check.isChecked(),
+            "stream_output": self._stream_output_check.isChecked(),
             "silence_timeout_ms": self._silence_timeout_spin.value(),
             "transcription_provider": self._transcription_provider_combo.currentData(),
+            "transcription_realtime": self._realtime_check.isChecked(),
             "whisper_local_model_size": self._local_model_combo.currentText(),
             "include_clipboard": self._include_clipboard_check.isChecked(),
             "include_selection": self._include_selection_check.isChecked(),
             "include_session_memory": self._include_memory_check.isChecked(),
             "include_vscode_file": self._include_vscode_check.isChecked(),
+            "custom_vocabulary": vocab,
             "auto_start": self._auto_start_check.isChecked(),
             "widget_position": self._position_combo.currentData(),
             "widget_scale": self._scale_combo.currentData(),
@@ -298,9 +349,9 @@ class SettingsDialog(QDialog):
 
     def _save_api_key(self, key: str) -> None:
         """Update the API key in the .env file."""
-        from pathlib import Path
-
-        env_path = Path(__file__).resolve().parent.parent.parent.parent / ".env"
+        # Use the config's resolved path so this works in the packaged .exe
+        # (next to the exe) as well as from source.
+        env_path = self._config.env_path
         lines = []
         key_found = False
 

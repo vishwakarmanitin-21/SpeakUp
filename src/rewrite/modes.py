@@ -2,6 +2,7 @@ from enum import Enum
 
 
 class RewriteMode(Enum):
+    SMART = "smart"
     CLEAN_GRAMMAR = "clean_grammar"
     STRUCTURED_NOTES = "structured_notes"
     CONVERT_TO_PRD = "convert_to_prd"
@@ -13,6 +14,7 @@ class RewriteMode(Enum):
     @property
     def display_name(self) -> str:
         names = {
+            RewriteMode.SMART: "Smart (auto-format)",
             RewriteMode.CLEAN_GRAMMAR: "Clean & Fix Grammar",
             RewriteMode.STRUCTURED_NOTES: "Structured Notes",
             RewriteMode.CONVERT_TO_PRD: "Convert to PRD",
