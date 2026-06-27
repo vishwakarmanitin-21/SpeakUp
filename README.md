@@ -236,8 +236,8 @@ Settings can be changed via the gear icon on the overlay or by editing `config.j
 | `transcription_realtime` | `false` | **Experimental.** Stream audio over the OpenAI Realtime API to transcribe *while you speak* (lowest latency). Requires `pip install -e ".[realtime]"`; falls back to standard transcription on any failure |
 | `whisper_local_model_size` | `base` | Local model: `tiny`, `base`, `small`, `medium`, `large` |
 | `include_vscode_file` | `false` | Include active VS Code file content as context (Windows) |
-| `widget_position` | `bottom_right` | Widget position: `bottom_right`, `bottom_left`, or `bottom_center` |
-| `widget_scale` | `normal` | Widget size: `compact` (hover-expand), `normal`, or `large` (2x) |
+| `widget_position` | `bottom_center` | Widget position: `bottom_right`, `bottom_left`, or `bottom_center` |
+| `widget_scale` | `compact` | Widget size: `compact` (hover-expand), `normal`, or `large` (2x) |
 | `auto_start` | `false` | Start SpeakUp automatically with Windows |
 | `track_usage` | `true` | Log usage stats to `usage_stats.json` |
 

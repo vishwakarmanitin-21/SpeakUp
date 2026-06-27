@@ -234,12 +234,12 @@ class Config:
     @property
     def widget_position(self) -> str:
         """'bottom_right', 'bottom_left', or 'bottom_center'."""
-        return self._get("widget_position", "bottom_right")
+        return self._get("widget_position", "bottom_center")
 
     @property
     def widget_scale(self) -> str:
         """'compact' (0.5x), 'normal' (1x), or 'large' (2x)."""
-        return self._get("widget_scale", "normal")
+        return self._get("widget_scale", "compact")
 
     # --- Startup ---
 
