@@ -44,5 +44,8 @@ flowai.log
 # App data
 usage_stats.json
 
+# Multi-machine sync conflict copies (e.g. overlay-Nitin-PC.py)
+*-*-PC.*
+
 # uv
 uv.lock
