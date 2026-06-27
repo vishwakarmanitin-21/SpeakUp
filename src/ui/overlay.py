@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 
 from PyQt5.QtCore import QPoint, QPropertyAnimation, QSize, Qt, QTimer, pyqtSignal, pyqtSlot
@@ -15,6 +16,8 @@ from PyQt5.QtWidgets import (
 )
 
 from src.config import Config
+
+logger = logging.getLogger("flowai")
 from src.output.inserter import OutputMode
 from src.services.pipeline import Pipeline, PipelineState
 from src.ui.components.mic_button import MicButton
@@ -257,6 +260,7 @@ class OverlayWidget(QWidget):
 
     @pyqtSlot()
     def _start_recording(self) -> None:
+        logger.info("_start_recording called (is_recording=%s)", self._is_recording)
         if self._is_recording:
             return
         self._is_recording = True
@@ -267,17 +271,19 @@ class OverlayWidget(QWidget):
 
     @pyqtSlot()
     def _stop_recording_and_process(self) -> None:
+        logger.info("_stop_recording_and_process called (is_recording=%s)", self._is_recording)
         if not self._is_recording:
             return
         elapsed = time.monotonic() - self._recording_start
         if elapsed < self._MIN_RECORDING_SECS:
             # Too short — discard silently to avoid "audio too short" API errors
-            print(f"[Info] Recording too short ({elapsed:.2f}s), discarded")
+            logger.info("Recording too short (%.2fs), discarded", elapsed)
             self._is_recording = False
             self._pipeline.cancel()
             self._mic_btn.set_state("idle")
             self._status.set_state("idle")
             return
+        logger.info("Recording stopped after %.2fs, starting pipeline", elapsed)
         self._is_recording = False
         self._pipeline.stop_recording()
         self._mic_btn.set_state("processing")
@@ -318,7 +324,7 @@ class OverlayWidget(QWidget):
         except Exception as e:
             msg = e.user_message if isinstance(e, FlowAIError) else str(e)
             self._status.set_state("error", msg)
-            print(f"[Error] Pipeline failed: {e}")
+            logger.error("Pipeline failed: %s", e, exc_info=True)
 
     def _show_preview(self, text: str) -> None:
         """Show the preview window with the rewritten text."""

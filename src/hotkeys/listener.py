@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 from typing import Callable
 
 from pynput import keyboard
+
+logger = logging.getLogger("flowai")
 
 
 # Map string names to pynput key objects
@@ -69,32 +72,41 @@ class HotkeyListener:
         self._listener: keyboard.Listener | None = None
 
     def _on_press(self, key: keyboard.Key | keyboard.KeyCode) -> None:
-        normalized = _normalize_key(key)
-        was_in_set = normalized in self._pressed_keys
-        self._pressed_keys.add(normalized)
+        try:
+            normalized = _normalize_key(key)
+            was_in_set = normalized in self._pressed_keys
+            self._pressed_keys.add(normalized)
 
-        if self._hotkey_keys.issubset(self._pressed_keys):
-            if not self._is_active:
-                self._is_active = True
-                self._on_activate()
-            elif normalized in self._hotkey_keys and not was_in_set:
-                # Key was missing from pressed set but we're still "active" —
-                # means we missed its release event (common with Windows key).
-                # Force deactivate then reactivate.
-                self._is_active = False
-                self._on_deactivate()
-                self._is_active = True
-                self._on_activate()
+            if self._hotkey_keys.issubset(self._pressed_keys):
+                if not self._is_active:
+                    self._is_active = True
+                    logger.info("Hotkey activated (all keys pressed)")
+                    self._on_activate()
+                elif normalized in self._hotkey_keys and not was_in_set:
+                    # Key was missing from pressed set but we're still "active" —
+                    # means we missed its release event (common with Windows key).
+                    # Force deactivate then reactivate.
+                    logger.info("Hotkey stale-state recovery: deactivate+reactivate")
+                    self._is_active = False
+                    self._on_deactivate()
+                    self._is_active = True
+                    self._on_activate()
+        except Exception as e:
+            logger.error("Hotkey _on_press error: %s", e, exc_info=True)
 
     def _on_release(self, key: keyboard.Key | keyboard.KeyCode) -> None:
-        normalized = _normalize_key(key)
+        try:
+            normalized = _normalize_key(key)
 
-        # If we were active and a hotkey key was released, deactivate
-        if self._is_active and normalized in self._hotkey_keys:
-            self._is_active = False
-            self._on_deactivate()
+            # If we were active and a hotkey key was released, deactivate
+            if self._is_active and normalized in self._hotkey_keys:
+                self._is_active = False
+                logger.info("Hotkey deactivated (key released)")
+                self._on_deactivate()
 
-        self._pressed_keys.discard(normalized)
+            self._pressed_keys.discard(normalized)
+        except Exception as e:
+            logger.error("Hotkey _on_release error: %s", e, exc_info=True)
 
     def start(self) -> None:
         """Start the hotkey listener (non-blocking, runs in a daemon thread)."""
@@ -104,6 +116,7 @@ class HotkeyListener:
         )
         self._listener.daemon = True
         self._listener.start()
+        logger.info("Hotkey listener started (keys: %s)", self._hotkey_keys)
 
     def stop(self) -> None:
         """Stop the hotkey listener."""
