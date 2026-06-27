@@ -12,7 +12,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-logger = logging.getLogger("flowai")
+logger = logging.getLogger("speakup")
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _STATS_FILE = _PROJECT_ROOT / "usage_stats.json"

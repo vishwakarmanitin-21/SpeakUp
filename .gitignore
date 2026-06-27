@@ -39,7 +39,7 @@ Desktop.ini
 
 # App runtime
 config.json
-flowai.log
+*.log
 
 # App data
 usage_stats.json

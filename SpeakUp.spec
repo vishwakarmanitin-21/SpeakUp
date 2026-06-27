@@ -1,8 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec file for FlowAI.
+"""PyInstaller spec file for SpeakUp.
 
-Build with:  pyinstaller FlowAI.spec
-Output:      dist/FlowAI.exe
+Build with:  pyinstaller SpeakUp.spec
+Output:      dist/SpeakUp.exe
 """
 
 import os
@@ -21,6 +21,7 @@ a = Analysis(
         # Bundle config defaults and .env template so the exe is self-contained
         (os.path.join(ROOT, 'config_defaults.json'), '.'),
         (os.path.join(ROOT, '.env.example'), '.'),
+        (os.path.join(ROOT, 'user_guide.html'), '.'),
     ],
     hiddenimports=[
         # qasync needs explicit import
@@ -65,7 +66,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='FlowAI',
+    name='SpeakUp',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

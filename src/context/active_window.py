@@ -10,7 +10,7 @@ import ctypes
 import logging
 import sys
 
-logger = logging.getLogger("flowai")
+logger = logging.getLogger("speakup")
 
 # Process exe name (lowercased, without .exe) -> (friendly label, surface)
 _APP_MAP: dict[str, tuple[str, str]] = {

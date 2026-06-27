@@ -14,7 +14,7 @@ import re
 import sys
 from pathlib import Path
 
-logger = logging.getLogger("flowai")
+logger = logging.getLogger("speakup")
 
 # VS Code title patterns (Windows uses " - ", some builds use " — ")
 # Pattern: "[● ]filename.ext - [subfolder - ]WorkspaceName - Visual Studio Code"

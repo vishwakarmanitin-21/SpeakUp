@@ -34,7 +34,7 @@ class SettingsDialog(QDialog):
 
     def __init__(self, parent=None, hotkey_listener=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("FlowAI Settings")
+        self.setWindowTitle("SpeakUp Settings")
         self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
         self.setMinimumWidth(450)
         self._config = Config()
@@ -119,7 +119,7 @@ class SettingsDialog(QDialog):
         )
         behavior_layout.addRow(self._stream_output_check)
 
-        self._auto_start_check = QCheckBox("Start FlowAI with Windows")
+        self._auto_start_check = QCheckBox("Start SpeakUp with Windows")
         behavior_layout.addRow(self._auto_start_check)
 
         self._silence_timeout_spin = QSpinBox()

@@ -31,7 +31,7 @@ from scipy.io.wavfile import write as wav_write
 
 from src.config import Config
 
-logger = logging.getLogger("flowai")
+logger = logging.getLogger("speakup")
 
 _REALTIME_URL = "wss://api.openai.com/v1/realtime?intent=transcription"
 _SAMPLE_RATE = 24000  # OpenAI Realtime expects 24 kHz PCM16 mono

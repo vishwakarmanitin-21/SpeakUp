@@ -4,6 +4,8 @@ import asyncio
 import logging
 import os
 import sys
+import webbrowser
+from pathlib import Path
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
@@ -11,6 +13,7 @@ from PyQt5.QtWidgets import (
     QAction,
     QApplication,
     QInputDialog,
+    QLineEdit,
     QMenu,
     QMessageBox,
     QSystemTrayIcon,
@@ -23,7 +26,7 @@ from src.services.error_handler import setup_logging
 from src.services.pipeline import Pipeline
 from src.ui.overlay import OverlayWidget
 
-logger = logging.getLogger("flowai")
+logger = logging.getLogger("speakup")
 
 
 def _make_tray_pixmap(size: int = 64) -> QPixmap:
@@ -58,6 +61,24 @@ def _make_tray_pixmap(size: int = 64) -> QPixmap:
     return pm
 
 
+def _open_user_guide() -> None:
+    """Open the bundled HTML user guide in the default browser."""
+    if getattr(sys, "frozen", False):
+        base = Path(getattr(sys, "_MEIPASS"))
+    else:
+        base = Path(__file__).resolve().parent.parent.parent
+    guide = base / "user_guide.html"
+    try:
+        if guide.exists():
+            webbrowser.open(guide.as_uri())
+        else:
+            webbrowser.open(
+                "https://github.com/vishwakarmanitin-21/Speak-up/blob/main/USER_GUIDE.md"
+            )
+    except Exception as e:
+        logger.warning("Could not open user guide: %s", e)
+
+
 def _create_tray_icon(
     app: QApplication,
     overlay: OverlayWidget,
@@ -65,7 +86,7 @@ def _create_tray_icon(
     """Create system tray icon with context menu."""
     tray = QSystemTrayIcon(app)
     tray.setIcon(QIcon(_make_tray_pixmap()))
-    tray.setToolTip("FlowAI - Voice AI Assistant")
+    tray.setToolTip("SpeakUp - Voice AI Assistant")
 
     menu = QMenu()
 
@@ -76,6 +97,10 @@ def _create_tray_icon(
     settings_action = QAction("Settings", menu)
     settings_action.triggered.connect(overlay.open_settings)
     menu.addAction(settings_action)
+
+    guide_action = QAction("User Guide", menu)
+    guide_action.triggered.connect(_open_user_guide)
+    menu.addAction(guide_action)
 
     menu.addSeparator()
 
@@ -97,9 +122,10 @@ def _check_api_key() -> bool:
     # Show first-run dialog
     text, ok = QInputDialog.getText(
         None,
-        "FlowAI - First Run Setup",
+        "SpeakUp - First Run Setup",
         "Enter your OpenAI API key to get started:\n"
-        "(This will be saved to .env in the project root)",
+        "(Stored privately on this PC under your user profile; never shared.)",
+        echo=QLineEdit.Password,
     )
 
     if ok and text.strip():
@@ -117,10 +143,10 @@ def _check_api_key() -> bool:
     else:
         QMessageBox.warning(
             None,
-            "FlowAI",
+            "SpeakUp",
             "An OpenAI API key is required.\n"
             "Copy .env.example to .env and add your key,\n"
-            "or restart FlowAI and enter it when prompted.",
+            "or restart SpeakUp and enter it when prompted.",
         )
         return False
 
@@ -128,10 +154,10 @@ def _check_api_key() -> bool:
 def run_app() -> None:
     """Main entry point for the GUI application."""
     setup_logging()
-    logger.info("FlowAI starting...")
+    logger.info("SpeakUp starting...")
 
     app = QApplication(sys.argv)
-    app.setApplicationName("FlowAI")
+    app.setApplicationName("SpeakUp")
     app.setQuitOnLastWindowClosed(False)
 
     # Set up asyncio event loop integrated with Qt
@@ -174,8 +200,8 @@ def run_app() -> None:
 
     loop.set_exception_handler(_handle_exception)
 
-    logger.info("FlowAI GUI started. Hotkey: %s", config.hotkey)
-    print(f"FlowAI GUI started. Hotkey: {config.hotkey}")
+    logger.info("SpeakUp GUI started. Hotkey: %s", config.hotkey)
+    print(f"SpeakUp GUI started. Hotkey: {config.hotkey}")
     print("Use the system tray icon to quit.")
 
     with loop:

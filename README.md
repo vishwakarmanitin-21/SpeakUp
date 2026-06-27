@@ -1,4 +1,4 @@
-# FlowAI (Speak-up)
+# SpeakUp
 
 Voice AI productivity tool that converts speech into structured, intelligent text. Speak raw thoughts and get clean emails, PRDs, LinkedIn posts, developer comments, and more.
 
@@ -20,7 +20,7 @@ Voice AI productivity tool that converts speech into structured, intelligent tex
 - **Desktop Overlay** — Minimal floating PyQt5 widget with mic button (3 visual states), mode selector, status indicator, and settings gear; configurable position (bottom-right, bottom-left, bottom-center) and size (compact, normal, large)
 - **Compact Mode** — Wispr Flow-style minimal bar that expands on hover to reveal controls; collapses back when mouse leaves
 - **Settings Panel** — Configure API keys, GPT model, Whisper model, transcription provider (cloud/local), local model size, hotkey, output mode, widget position/size, auto-start, context toggles, silence timeout; all changes hot-reload immediately
-- **Auto-Start with Windows** — Optional registry-based startup entry; toggle in Settings to launch FlowAI on Windows boot
+- **Auto-Start with Windows** — Optional registry-based startup entry; toggle in Settings to launch SpeakUp on Windows boot
 - **System Tray** — Runs in background with Show/Hide, Settings, Quit menu; programmatic microphone icon
 - **First-Run Setup** — GUI prompt for API key if no .env file found; CLI mode prompts via stdin and saves to .env
 - **Cancel Pipeline** — Press Escape during recording or processing to abort the current run
@@ -31,8 +31,8 @@ Voice AI productivity tool that converts speech into structured, intelligent tex
 - **Microphone Safety** — Missing or unavailable microphone raises a clear error instead of crashing
 - **Structured Exceptions** — APIKeyError, RecordingError, TranscriptionError, RewriteError carry user-friendly messages surfaced in the UI
 - **Usage Analytics** — Tracks run count, words transcribed, words generated, and estimated typing time saved; stored locally in `usage_stats.json`
-- **Desktop Shortcut** — VBS launcher runs FlowAI without a console window; `create_shortcut.vbs` creates a desktop shortcut
-- **Standalone Exe** — PyInstaller build produces a single `FlowAI.exe` (~85 MB) for easy distribution; no Python installation needed
+- **Desktop Shortcut** — VBS launcher runs SpeakUp without a console window; `create_shortcut.vbs` creates a desktop shortcut
+- **Standalone Exe** — PyInstaller build produces a single `SpeakUp.exe` (~85 MB) for easy distribution; no Python installation needed
 - **Automated Tests** — pytest suite covering Config, AudioRecorder, Pipeline, and error hierarchy (19 tests)
 
 ## Tech Stack
@@ -52,7 +52,7 @@ Voice AI productivity tool that converts speech into structured, intelligent tex
 
 ### Option A: Standalone Exe (easiest)
 
-1. Download `FlowAI.exe` from the dist folder (or get it from a teammate)
+1. Download `SpeakUp.exe` from the dist folder (or get it from a teammate)
 2. Double-click to run — enter your OpenAI API key when prompted on first launch
 3. That's it! Config files are created next to the exe automatically
 
@@ -91,14 +91,14 @@ python -m src.main --cli
 ```bash
 wscript create_shortcut.vbs
 ```
-This creates a "FlowAI" shortcut on your Desktop that launches the app without a console window.
+This creates a "SpeakUp" shortcut on your Desktop that launches the app without a console window.
 
 ### Building the Exe
 
 ```bash
 pip install pyinstaller
 python scripts/build.py
-# Output: dist/FlowAI.exe
+# Output: dist/SpeakUp.exe
 ```
 
 ## Usage
@@ -210,9 +210,9 @@ src/
       settings_dialog.py # Settings panel
 scripts/
   build.py               # PyInstaller build script
-FlowAI.vbs               # VBS launcher (no console window)
+SpeakUp.vbs               # VBS launcher (no console window)
 create_shortcut.vbs       # Creates desktop shortcut
-FlowAI.spec               # PyInstaller spec file
+SpeakUp.spec               # PyInstaller spec file
 ```
 
 ## Configuration
@@ -238,7 +238,7 @@ Settings can be changed via the gear icon on the overlay or by editing `config.j
 | `include_vscode_file` | `false` | Include active VS Code file content as context (Windows) |
 | `widget_position` | `bottom_right` | Widget position: `bottom_right`, `bottom_left`, or `bottom_center` |
 | `widget_scale` | `normal` | Widget size: `compact` (hover-expand), `normal`, or `large` (2x) |
-| `auto_start` | `false` | Start FlowAI automatically with Windows |
+| `auto_start` | `false` | Start SpeakUp automatically with Windows |
 | `track_usage` | `true` | Log usage stats to `usage_stats.json` |
 
 ## Privacy & Security

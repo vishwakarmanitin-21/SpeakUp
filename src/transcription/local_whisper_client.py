@@ -7,7 +7,7 @@ import logging
 
 from src.config import Config
 
-logger = logging.getLogger("flowai")
+logger = logging.getLogger("speakup")
 
 # Module-level model cache — only loaded once per session
 _cached_model = None

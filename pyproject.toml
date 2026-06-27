@@ -1,5 +1,5 @@
 [project]
-name = "flowai"
+name = "speakup"
 version = "0.1.0"
 description = "Voice AI productivity tool — converts speech to structured, intelligent text"
 requires-python = ">=3.11"
@@ -28,4 +28,4 @@ realtime = [
 ]
 
 [project.scripts]
-flowai = "src.main:main"
+speakup = "src.main:main"

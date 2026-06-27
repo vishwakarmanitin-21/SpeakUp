@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from src.services.error_handler import (
-    FlowAIError,
+    SpeakUpError,
     APIKeyError,
     RecordingError,
     TranscriptionError,
@@ -10,23 +10,23 @@ from src.services.error_handler import (
 )
 
 
-def test_flowai_error_is_exception():
-    err = FlowAIError("base error")
+def test_speakup_error_is_exception():
+    err = SpeakUpError("base error")
     assert isinstance(err, Exception)
     assert str(err) == "base error"
     assert err.user_message == "base error"
 
 
 def test_user_message_override():
-    err = FlowAIError("internal msg", "User-friendly message")
+    err = SpeakUpError("internal msg", "User-friendly message")
     assert err.user_message == "User-friendly message"
     assert str(err) == "internal msg"
 
 
-def test_subclasses_are_flowai_errors():
+def test_subclasses_are_speakup_errors():
     for cls in (APIKeyError, RecordingError, TranscriptionError, RewriteError):
         err = cls("test")
-        assert isinstance(err, FlowAIError)
+        assert isinstance(err, SpeakUpError)
         assert isinstance(err, Exception)
 
 

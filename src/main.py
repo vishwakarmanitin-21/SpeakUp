@@ -146,7 +146,7 @@ def main() -> None:
     listener.start()
 
     print("=" * 50)
-    print("  FlowAI — Voice AI Productivity Tool (CLI)")
+    print("  SpeakUp — Voice AI Productivity Tool (CLI)")
     print("=" * 50)
     print(f"  Hotkey:     {config.hotkey}")
     print(f"  Whisper:    {config.whisper_model}")
@@ -185,7 +185,7 @@ def main() -> None:
     except KeyboardInterrupt:
         listener.stop()
         loop.close()
-        print("\nExiting FlowAI. Goodbye!")
+        print("\nExiting SpeakUp. Goodbye!")
 
 
 def gui() -> None:

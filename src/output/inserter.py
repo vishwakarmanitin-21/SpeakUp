@@ -8,7 +8,7 @@ from pynput.keyboard import Controller, Key
 
 from src.config import Config
 
-logger = logging.getLogger("flowai")
+logger = logging.getLogger("speakup")
 
 
 class OutputMode:

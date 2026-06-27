@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FlowAI — Backlog</title>
+<title>SpeakUp — Backlog</title>
 <style>
   :root {
     --accent: #2f8fd0;
@@ -81,9 +81,9 @@
 </head>
 <body>
 <header>
-  <div class="logo">F</div>
+  <div class="logo">S</div>
   <div>
-    <h1>FlowAI — Backlog</h1>
+    <h1>SpeakUp — Backlog</h1>
     <p>Voice-to-structured-text desktop app · priority-ordered backlog &amp; status tracker</p>
   </div>
 </header>
@@ -155,7 +155,7 @@ const ITEMS = [
 
 const STATUSES = ['Backlog', 'In Progress', 'Done'];
 const PRI_ORDER = {P1: 0, P2: 1, P3: 2};
-const KEY = id => 'flowai-backlog-' + id;
+const KEY = id => 'speakup-backlog-' + id;
 
 function status(item) { return localStorage.getItem(KEY(item.id)) || item.s; }
 

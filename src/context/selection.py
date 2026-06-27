@@ -6,7 +6,7 @@ import time
 import pyperclip
 from pynput.keyboard import Controller, Key
 
-logger = logging.getLogger("flowai")
+logger = logging.getLogger("speakup")
 
 # Windows where a simulated Ctrl+C is dangerous: a console interprets it as
 # SIGINT and would terminate this application. Skip selection capture there.

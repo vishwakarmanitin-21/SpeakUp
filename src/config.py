@@ -9,9 +9,23 @@ from dotenv import load_dotenv
 
 
 def _find_project_root() -> Path:
-    """Determine project root for user-writable files (config.json, .env)."""
+    """Determine where user-writable files (config.json, .env) live.
+
+    Installed (frozen) app: per-user data lives in %APPDATA%\\SpeakUp — never next
+    to the exe — so the API key can't end up in the distributed folder and the
+    app works even when installed to a read-only location (e.g. Program Files).
+    Running from source: use the project root for dev convenience.
+    """
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent
+        base = os.environ.get("APPDATA") or os.environ.get("LOCALAPPDATA")
+        if base:
+            root = Path(base) / "SpeakUp"
+            try:
+                root.mkdir(parents=True, exist_ok=True)
+                return root
+            except Exception:
+                pass
+        return Path(sys.executable).parent  # fallback if APPDATA is unavailable
     return Path(__file__).resolve().parent.parent
 
 
@@ -231,7 +245,7 @@ class Config:
 
     @property
     def auto_start(self) -> bool:
-        """Whether FlowAI should start automatically with Windows."""
+        """Whether SpeakUp should start automatically with Windows."""
         return bool(self._get("auto_start", False))
 
     # --- Usage Analytics ---

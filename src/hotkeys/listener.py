@@ -5,7 +5,7 @@ from typing import Callable
 
 from pynput import keyboard
 
-logger = logging.getLogger("flowai")
+logger = logging.getLogger("speakup")
 
 
 # Map string names to pynput key objects

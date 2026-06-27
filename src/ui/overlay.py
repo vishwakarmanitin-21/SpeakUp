@@ -17,7 +17,7 @@ from PyQt5.QtWidgets import (
 
 from src.config import Config
 
-logger = logging.getLogger("flowai")
+logger = logging.getLogger("speakup")
 from src.output.inserter import OutputMode
 from src.services.pipeline import Pipeline, PipelineState
 from src.ui.components.mic_button import MicButton
@@ -306,7 +306,7 @@ class OverlayWidget(QWidget):
 
     async def _run_pipeline(self) -> None:
         """Run the transcription + rewrite pipeline."""
-        from src.services.error_handler import FlowAIError
+        from src.services.error_handler import SpeakUpError
 
         mode = self._mode_selector.current_mode()
         output_mode = self._config.output_mode
@@ -322,7 +322,7 @@ class OverlayWidget(QWidget):
                 self._show_preview(rewritten)
 
         except Exception as e:
-            msg = e.user_message if isinstance(e, FlowAIError) else str(e)
+            msg = e.user_message if isinstance(e, SpeakUpError) else str(e)
             self._status.set_state("error", msg)
             logger.error("Pipeline failed: %s", e, exc_info=True)
 

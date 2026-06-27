@@ -21,7 +21,7 @@ class PreviewWindow(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.Tool)
-        self.setWindowTitle("FlowAI - Preview")
+        self.setWindowTitle("SpeakUp - Preview")
         self.setMinimumSize(450, 300)
         self._inserter = OutputInserter()
         self._setup_ui()

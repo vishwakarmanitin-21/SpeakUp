@@ -1,4 +1,4 @@
-"""Manage FlowAI auto-start with Windows startup via the registry."""
+"""Manage SpeakUp auto-start with Windows startup via the registry."""
 
 from __future__ import annotations
 
@@ -6,10 +6,10 @@ import logging
 import sys
 from pathlib import Path
 
-logger = logging.getLogger("flowai")
+logger = logging.getLogger("speakup")
 
 _REG_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
-_APP_NAME = "FlowAI"
+_APP_NAME = "SpeakUp"
 
 
 def _get_launch_command() -> str:
@@ -25,7 +25,7 @@ def _get_launch_command() -> str:
 
     # Development mode — prefer the VBS launcher
     project_root = Path(__file__).resolve().parent.parent.parent
-    vbs_path = project_root / "FlowAI.vbs"
+    vbs_path = project_root / "SpeakUp.vbs"
     if vbs_path.exists():
         return f'wscript.exe "{vbs_path}"'
 
@@ -39,7 +39,7 @@ def _get_launch_command() -> str:
 
 
 def is_autostart_enabled() -> bool:
-    """Check whether FlowAI is registered in Windows startup."""
+    """Check whether SpeakUp is registered in Windows startup."""
     if sys.platform != "win32":
         return False
     try:
@@ -58,7 +58,7 @@ def is_autostart_enabled() -> bool:
 
 
 def set_autostart(enable: bool) -> None:
-    """Enable or disable FlowAI auto-start with Windows."""
+    """Enable or disable SpeakUp auto-start with Windows."""
     if sys.platform != "win32":
         logger.warning("Auto-start is only supported on Windows")
         return

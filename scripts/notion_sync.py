@@ -85,7 +85,7 @@ def sync_overview():
     pid = PAGE_IDS["overview"]
     clear_page(pid)
     append_blocks(pid, [
-        heading2("FlowAI (Speak-up)"),
+        heading2("SpeakUp (Speak-up)"),
         text_block(
             "Voice AI productivity tool that converts speech into structured, "
             "intelligent text. Speak raw thoughts and get clean emails, PRDs, "
@@ -242,7 +242,7 @@ def sync_requirements():
     clear_page(pid)
     append_blocks(pid, [
         heading2("Requirements (PRD)"),
-        text_block("Product Name: FlowAI (Working Name)"),
+        text_block("Product Name: SpeakUp (Working Name)"),
         divider(),
         heading3("Product Vision"),
         text_block(
@@ -262,7 +262,7 @@ def sync_requirements():
         heading3("Core Value Proposition"),
         text_block(
             "Traditional dictation converts speech to literal text. "
-            "FlowAI converts thinking to structured, clean, contextual output."
+            "SpeakUp converts thinking to structured, clean, contextual output."
         ),
         divider(),
         heading3("MVP Features (Phase 1)"),

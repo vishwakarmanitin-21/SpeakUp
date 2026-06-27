@@ -1,4 +1,4 @@
-# Testing FlowAI (Speak-up) — Plain-Language Guide
+# Testing SpeakUp (Speak-up) — Plain-Language Guide
 
 Windows / PowerShell. Run commands **one line at a time** (don't chain with `&&`).
 
@@ -110,9 +110,9 @@ transcribe while speaking (experimental)"** → Save.
   immediately (little or no "transcribing" pause).
 - **If it fails:** you'll see a clear message telling you to turn it off in
   Settings; the normal mode keeps working. Please send me the last ~30 lines of
-  `flowai.log` (especially any lines starting `Realtime`) so I can finalise it:
+  `speakup.log` (especially any lines starting `Realtime`) so I can finalise it:
 ```powershell
-Get-Content flowai.log -Tail 30
+Get-Content speakup.log -Tail 30
 ```
 
 ---
@@ -130,7 +130,7 @@ python -m pytest -q
 
 - **Logs:**
 ```powershell
-Get-Content flowai.log -Tail 40
+Get-Content speakup.log -Tail 40
 ```
 - **Hotkey clashes?** Settings → change Hotkey (e.g. `ctrl+shift+space`), Save.
 - **API key error?** Settings → API Settings → re-enter the key.

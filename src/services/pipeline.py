@@ -4,7 +4,7 @@ import logging
 import time
 from typing import Callable
 
-logger = logging.getLogger("flowai")
+logger = logging.getLogger("speakup")
 
 from src.audio.recorder import AudioRecorder
 from src.audio.silence_detector import SilenceDetector

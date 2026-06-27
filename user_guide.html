@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SpeakUp — User Guide</title>
+<style>
+  :root{--accent:#2f8fd0;--ink:#1f2933;--muted:#5b6772;--line:#e3e7ec;--soft:#eef6fc;}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       color:var(--ink);background:#fff;line-height:1.6;}
+  .wrap{max-width:760px;margin:0 auto;padding:32px 24px 64px;}
+  header{display:flex;align-items:center;gap:14px;margin-bottom:8px;}
+  .logo{width:40px;height:40px;border-radius:10px;background:var(--accent);color:#fff;
+        display:grid;place-items:center;font-weight:700;font-size:20px;}
+  h1{font-size:24px;margin:0;}
+  .sub{color:var(--muted);margin:2px 0 0;font-size:14px;}
+  h2{font-size:18px;margin:30px 0 8px;border-bottom:1px solid var(--line);padding-bottom:6px;}
+  a{color:var(--accent);}
+  code{background:#f3f5f7;padding:1px 5px;border-radius:4px;font-size:90%;}
+  table{border-collapse:collapse;width:100%;margin:10px 0;}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;font-size:14px;vertical-align:top;}
+  th{background:#fbfcfd;}
+  .note{background:var(--soft);border-left:3px solid var(--accent);padding:10px 14px;border-radius:0 6px 6px 0;margin:12px 0;font-size:14px;}
+  ol,ul{padding-left:22px;}
+  li{margin:4px 0;}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="logo">S</div>
+  <div><h1>SpeakUp — User Guide</h1>
+  <p class="sub">Turn your speech into clean, structured text anywhere you type.</p></div>
+</header>
+
+<p>Hold a hotkey, talk, release — and polished text appears at your cursor. No coding needed.</p>
+
+<h2>1. What you need</h2>
+<ul>
+<li>A Windows PC.</li>
+<li>An <strong>OpenAI API key</strong> (steps below). You pay OpenAI directly for usage — typically a few cents for a long dictation session.</li>
+</ul>
+<div class="note">An OpenAI <em>API key</em> is different from a ChatGPT Plus subscription. ChatGPT Plus does <strong>not</strong> include API access — you need an API key from the developer platform below.</div>
+
+<h2>2. Get your OpenAI API key (5 minutes)</h2>
+<ol>
+<li>Go to <a href="https://platform.openai.com">platform.openai.com</a> and sign in (or create a free account).</li>
+<li>Add a little credit: <strong>Settings → Billing → Add payment method</strong>, then add e.g. $5. Usage is pay-as-you-go.</li>
+<li>Open <a href="https://platform.openai.com/api-keys">platform.openai.com/api-keys</a>.</li>
+<li>Click <strong>Create new secret key</strong>, name it (e.g. "SpeakUp"), and create it.</li>
+<li><strong>Copy the key</strong> (starts with <code>sk-…</code>). You can only see it once — keep it safe. Lost it? Just create a new one.</li>
+</ol>
+
+<h2>3. Install and first run</h2>
+<ol>
+<li>Put <code>SpeakUp.exe</code> anywhere (e.g. your Desktop) and double-click it.</li>
+<li>On first launch it asks for your OpenAI API key — <strong>paste it</strong> and click OK.</li>
+<li>A small floating bar appears at the bottom of the screen, plus a microphone icon in your system tray.</li>
+</ol>
+
+<h2>4. How to use it</h2>
+<ol>
+<li>Click into any text field (email, chat box, document…).</li>
+<li><strong>Hold <code>Ctrl</code> + <code>Windows</code> together and speak.</strong></li>
+<li><strong>Release</strong> — your words are cleaned up and typed in at your cursor.</li>
+</ol>
+<p>It removes "um/uh/like", fixes grammar, honours corrections ("Tuesday — no, Wednesday"), and matches the app you're in. Pick a style from the dropdown — <strong>Smart</strong> (automatic) is the default.</p>
+
+<h2>5. Settings (the gear icon, or tray → Settings)</h2>
+<table>
+<tr><th>Setting</th><th>What it does</th></tr>
+<tr><td>OpenAI API Key</td><td>Your key. <strong>Show</strong> reveals it, <strong>Test</strong> checks it works.</td></tr>
+<tr><td>GPT Model</td><td>Cleans up your text. <code>gpt-4o-mini</code> (fast) is a good default.</td></tr>
+<tr><td>Speech Model</td><td><code>gpt-4o-transcribe</code> (most accurate) / <code>gpt-4o-mini-transcribe</code> (faster).</td></tr>
+<tr><td>Default Mode</td><td>Which rewrite style is selected on launch (Smart recommended).</td></tr>
+<tr><td>Output Mode</td><td>Auto-paste at cursor (default), Clipboard, or Preview.</td></tr>
+<tr><td>Hotkey</td><td>The push-to-talk keys. Change if <code>Ctrl+Win</code> clashes.</td></tr>
+<tr><td>Personal Dictionary</td><td>Add names/jargon so they're always spelled right.</td></tr>
+<tr><td>Live transcription (experimental)</td><td>Transcribe while you speak for lower lag.</td></tr>
+</table>
+
+<h2>6. Which AI models give the best results?</h2>
+<ul>
+<li><strong>Speech-to-text:</strong> <code>gpt-4o-transcribe</code> — most accurate; <code>gpt-4o-mini-transcribe</code> for speed.</li>
+<li><strong>Cleanup:</strong> <code>gpt-4o-mini</code> — fast and high quality; <code>gpt-4o</code> for maximum polish.</li>
+<li><strong>Lowest lag:</strong> turn on <strong>Live transcription</strong>; if it can't connect it falls back automatically, so you never lose a dictation.</li>
+</ul>
+
+<h2>7. Privacy &amp; where things are stored</h2>
+<ul>
+<li>Your API key is stored only on your PC, privately under <code>%APPDATA%\SpeakUp</code>. It's never bundled into the app or shared.</li>
+<li>Audio is processed in memory and sent to OpenAI for transcription — not saved to disk.</li>
+</ul>
+
+<h2>8. Troubleshooting</h2>
+<table>
+<tr><th>Problem</th><th>Fix</th></tr>
+<tr><td>"API key" error / nothing happens</td><td>Settings → paste your key → click <strong>Test</strong>.</td></tr>
+<tr><td>Hotkey doesn't trigger</td><td>Settings → change the <strong>Hotkey</strong> (e.g. <code>ctrl+shift+space</code>).</td></tr>
+<tr><td>No text appears</td><td>Make sure your cursor is in a text field before releasing the keys.</td></tr>
+<tr><td>Microphone error</td><td>Check your mic is connected and not in use by another app.</td></tr>
+<tr><td>Start fresh</td><td>Delete the <code>%APPDATA%\SpeakUp</code> folder; the app will prompt for your key again.</td></tr>
+</table>
+
+<p style="color:var(--muted);font-size:13px;margin-top:28px;">You're billed by OpenAI for your own API usage — keep an eye on it at platform.openai.com.</p>
+</div>
+</body>
+</html>
