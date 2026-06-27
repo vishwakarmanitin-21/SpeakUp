@@ -8,40 +8,38 @@ from src.config import Config
 
 
 class WhisperClient:
-    """Transcribes audio using the OpenAI Whisper API."""
+    """Transcribes audio using the OpenAI Whisper API.
 
-    def __init__(self) -> None:
-        config = Config()
-        self._client = AsyncOpenAI(api_key=config.openai_api_key)
-        self._model = config.whisper_model
+    The client is built lazily inside transcribe() (reading the current key and
+    model), so the app can launch without an API key — it's only required when
+    you actually dictate.
+    """
 
     async def transcribe(self, audio_buffer: io.BytesIO) -> str:
-        """Send audio to Whisper API and return the transcription.
-
-        Args:
-            audio_buffer: In-memory WAV file (BytesIO with .name attribute).
-
-        Returns:
-            Transcribed text string.
+        """Send audio to the transcription API and return the text.
 
         Raises:
-            TranscriptionError: If the Whisper API call fails.
+            TranscriptionError: If the API call fails.
         """
         from src.services.error_handler import TranscriptionError
 
-        # Bias recognition toward the user's custom vocabulary (names, jargon).
+        config = Config()
+        # Raises APIKeyError (a user-friendly SpeakUpError) if no key is set yet.
+        client = AsyncOpenAI(api_key=config.openai_api_key)
+
         kwargs: dict = {
-            "model": self._model,
+            "model": config.whisper_model,
             "file": audio_buffer,
             "language": "en",
             "response_format": "text",
         }
-        vocab = Config().custom_vocabulary
+        # Bias recognition toward the user's custom vocabulary (names, jargon).
+        vocab = config.custom_vocabulary
         if vocab:
             kwargs["prompt"] = "Terms: " + ", ".join(vocab)
 
         try:
-            response = await self._client.audio.transcriptions.create(**kwargs)
+            response = await client.audio.transcriptions.create(**kwargs)
             return response.strip()
         except Exception as e:
             raise TranscriptionError(

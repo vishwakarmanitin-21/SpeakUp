@@ -125,42 +125,39 @@ def _create_tray_icon(
     return tray
 
 
-def _check_api_key() -> bool:
-    """Check if the OpenAI API key is set. Prompt the user if not."""
+def _ensure_api_key_present() -> bool:
+    """Offer first-run key entry. Returns True if a key is set; never blocks launch.
+
+    If the user has no key yet, they can cancel — the app still opens and they
+    can add the key any time from the tray menu -> Settings.
+    """
     key = os.getenv("OPENAI_API_KEY", "").strip()
     if key and key != "sk-your-key-here":
         return True
 
-    # Show first-run dialog
     text, ok = QInputDialog.getText(
         None,
-        "SpeakUp - First Run Setup",
-        "Enter your OpenAI API key to get started:\n"
-        "(Stored privately on this PC under your user profile; never shared.)",
+        "SpeakUp - Welcome",
+        "Enter your OpenAI API key to start dictating.\n"
+        "(Stored privately on this PC; never shared.)\n\n"
+        "No key yet? Click Cancel — SpeakUp will still open, and you can add it\n"
+        "any time from the tray menu → Settings.",
         echo=QLineEdit.Password,
     )
 
     if ok and text.strip():
         api_key = text.strip()
         os.environ["OPENAI_API_KEY"] = api_key
-
-        # Write to .env file (use the config-resolved path so it lands next to
-        # the exe when frozen, not in the temporary PyInstaller extract dir).
-        env_path = Config().env_path
-        with open(env_path, "w", encoding="utf-8") as f:
-            f.write(f"OPENAI_API_KEY={api_key}\n")
-
-        logger.info("API key saved to .env")
+        try:
+            env_path = Config().env_path
+            with open(env_path, "w", encoding="utf-8") as f:
+                f.write(f"OPENAI_API_KEY={api_key}\n")
+            Config().reload()
+            logger.info("API key saved")
+        except Exception as e:
+            logger.error("Could not save API key: %s", e)
         return True
-    else:
-        QMessageBox.warning(
-            None,
-            "SpeakUp",
-            "An OpenAI API key is required.\n"
-            "Copy .env.example to .env and add your key,\n"
-            "or restart SpeakUp and enter it when prompted.",
-        )
-        return False
+    return False
 
 
 def run_app() -> None:
@@ -180,9 +177,9 @@ def run_app() -> None:
     # Load config (this loads .env)
     config = Config()
 
-    # Check API key (first-run experience)
-    if not _check_api_key():
-        sys.exit(1)
+    # First run: offer key entry, but NEVER block launch — the app opens either
+    # way and the user can add the key any time from tray → Settings.
+    has_key = _ensure_api_key_present()
 
     # Create pipeline and overlay
     pipeline = Pipeline()
@@ -191,6 +188,13 @@ def run_app() -> None:
 
     # System tray
     _tray = _create_tray_icon(app, overlay)  # noqa: F841 -- prevent GC
+    if not has_key:
+        _tray.showMessage(
+            "SpeakUp",
+            "Add your OpenAI API key in Settings (tray → Settings) to start dictating.",
+            QSystemTrayIcon.Information,
+            8000,
+        )
 
     # Connect hotkey listener to overlay signals
     hotkey = HotkeyListener(

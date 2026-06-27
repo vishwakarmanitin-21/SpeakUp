@@ -60,7 +60,6 @@ class RealtimeTranscriber:
 
     def __init__(self) -> None:
         config = Config()
-        self._api_key = config.openai_api_key
         model = config.whisper_model
         self._model = model if "transcribe" in model else "gpt-4o-transcribe"
         self._vocab = config.custom_vocabulary
@@ -97,9 +96,10 @@ class RealtimeTranscriber:
         self._mic.start()
 
         # 2. Try to connect the realtime WS (one retry for transient DNS blips).
-        headers = {"Authorization": f"Bearer {self._api_key}"}
         for attempt in range(2):
             try:
+                # Read the key here so a missing key falls back to batch cleanly.
+                headers = {"Authorization": f"Bearer {Config().openai_api_key}"}
                 self._ws = await _ws_connect(_REALTIME_URL, headers)
                 await self._ws.send(json.dumps({
                     "type": _EVT_SESSION_UPDATE,
