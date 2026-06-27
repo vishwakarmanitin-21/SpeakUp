@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FlowAI — Backlog</title>
+<style>
+  :root {
+    --accent: #2f8fd0;
+    --accent-soft: #e7f2fb;
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --ink: #1f2933;
+    --muted: #6b7785;
+    --line: #e3e7ec;
+    --p1: #d64545; --p1-bg: #fbe9e9;
+    --p2: #d08a1e; --p2-bg: #fbf1de;
+    --p3: #6b7785; --p3-bg: #eef1f4;
+    --done: #2e8b57; --done-bg: #e6f4ec;
+    --prog: #2f8fd0; --prog-bg: #e7f2fb;
+    --back: #8a94a0; --back-bg: #eef1f4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--ink); font-size: 14px;
+  }
+  header {
+    background: var(--card); border-bottom: 1px solid var(--line);
+    padding: 20px 28px; display: flex; align-items: center; gap: 14px;
+  }
+  .logo {
+    width: 34px; height: 34px; border-radius: 8px; background: var(--accent);
+    display: grid; place-items: center; color: #fff; font-weight: 700;
+  }
+  header h1 { font-size: 18px; margin: 0; }
+  header p { margin: 2px 0 0; color: var(--muted); font-size: 12.5px; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 22px 28px 60px; }
+  .stats { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+  .stat {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 16px; min-width: 120px;
+  }
+  .stat .n { font-size: 22px; font-weight: 700; }
+  .stat .l { color: var(--muted); font-size: 12px; }
+  .controls {
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 14px; margin-bottom: 16px;
+  }
+  .controls input, .controls select {
+    padding: 7px 10px; border: 1px solid var(--line); border-radius: 7px;
+    font-size: 13px; background: #fff; color: var(--ink);
+  }
+  .controls input { flex: 1; min-width: 180px; }
+  .controls .spacer { flex: 1; }
+  button.link {
+    background: none; border: none; color: var(--accent); cursor: pointer;
+    font-size: 13px; text-decoration: underline;
+  }
+  table { width: 100%; border-collapse: collapse; background: var(--card);
+    border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); background: #fbfcfd; }
+  tr:last-child td { border-bottom: none; }
+  td.title { font-weight: 600; }
+  td .notes { color: var(--muted); font-weight: 400; font-size: 12.5px; margin-top: 3px; }
+  .badge { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+  .cat { background: var(--accent-soft); color: var(--accent); }
+  .pri-P1 { background: var(--p1-bg); color: var(--p1); }
+  .pri-P2 { background: var(--p2-bg); color: var(--p2); }
+  .pri-P3 { background: var(--p3-bg); color: var(--p3); }
+  select.status { border: none; border-radius: 20px; padding: 3px 8px; font-size: 11.5px; font-weight: 600; cursor: pointer; }
+  .st-Done { background: var(--done-bg); color: var(--done); }
+  .st-In\ Progress { background: var(--prog-bg); color: var(--prog); }
+  .st-Backlog { background: var(--back-bg); color: var(--back); }
+  .empty { text-align: center; color: var(--muted); padding: 40px; }
+  footer { color: var(--muted); font-size: 12px; margin-top: 16px; }
+  tr.done td.title { text-decoration: line-through; text-decoration-color: var(--line); }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">F</div>
+  <div>
+    <h1>FlowAI — Backlog</h1>
+    <p>Voice-to-structured-text desktop app · priority-ordered backlog &amp; status tracker</p>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="stats" id="stats"></div>
+
+  <div class="controls">
+    <input id="search" type="text" placeholder="Search backlog…">
+    <select id="fPriority"><option value="">All priorities</option><option>P1</option><option>P2</option><option>P3</option></select>
+    <select id="fStatus"><option value="">All statuses</option><option>Backlog</option><option>In Progress</option><option>Done</option></select>
+    <select id="fCategory"><option value="">All categories</option></select>
+    <span class="spacer"></span>
+    <button class="link" id="reset">Reset status changes</button>
+  </div>
+
+  <table>
+    <thead><tr><th style="width:42%">Item</th><th>Category</th><th>Priority</th><th>Status</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+  <footer>
+    Status changes are saved in your browser (localStorage) — no server needed.
+    App details live in <code>README.md</code>; this page is the single backlog tracker.
+  </footer>
+</div>
+
+<script>
+const ITEMS = [
+  // --- Shipped (record of completed work) ---
+  {id:'d1', t:'Smart auto-format mode (default)', c:'Intelligence', p:'P1', s:'Done', n:'Detects the active app and adapts tone/format (chat, email, editor, document).'},
+  {id:'d2', t:'Disfluency cleanup, self-corrections, inline commands', c:'Intelligence', p:'P1', s:'Done', n:'Balanced rewrite: strips fillers/false starts, honours corrections, plain-text output.'},
+  {id:'d3', t:'Personal dictionary', c:'Intelligence', p:'P1', s:'Done', n:'Biases transcription and corrects spelling of names/jargon.'},
+  {id:'d4', t:'Streaming output (insert as written)', c:'UX', p:'P1', s:'Done', n:'Reliable chunked paste at the cursor.'},
+  {id:'d5', t:'Live transcription (OpenAI Realtime API)', c:'Live', p:'P1', s:'Done', n:'Opt-in; transcribe while speaking over a WebSocket.'},
+  {id:'d6', t:'Realtime resilience (capture-first + batch fallback)', c:'Reliability', p:'P1', s:'Done', n:'Live mode can never lose a dictation; falls back to the standard path.'},
+  {id:'d7', t:'Clipboard-safe paste', c:'UX', p:'P2', s:'Done', n:'Restores the previous clipboard after auto-paste.'},
+  {id:'d8', t:'gpt-4o-transcribe default + model modernisation', c:'Intelligence', p:'P2', s:'Done', n:'Most accurate speech model by default.'},
+  {id:'d9', t:'Terminal Ctrl+C crash fix', c:'Reliability', p:'P1', s:'Done', n:'Selection capture no longer sends SIGINT in consoles.'},
+  {id:'d10', t:'Settings UI redesign', c:'UX', p:'P2', s:'Done', n:'Contrast, accent, scroll area, dark title bar, key show/test, greyed inapplicable options.'},
+
+  // --- Pending: P1 ---
+  {id:'p1', t:'Make live mode reliable (isolate realtime socket from qasync)', c:'Live', p:'P1', s:'Backlog', n:'Fixes the qasync getaddrinfo/DNS flakiness so live connects instead of falling back.'},
+  {id:'p2', t:'Live caption while speaking', c:'Live', p:'P1', s:'Backlog', n:'Show words forming in the overlay as you talk — the biggest "feels like Wispr Flow" upgrade.'},
+  {id:'p3', t:'"Nitin Mode" — style learning', c:'Intelligence', p:'P1', s:'Backlog', n:'Learn the user\'s writing voice from real samples so output sounds personal.'},
+
+  // --- Pending: P2 ---
+  {id:'p4', t:'Re-run last dictation in another mode', c:'UX', p:'P2', s:'Backlog', n:'Re-rewrite the last transcript without re-speaking.'},
+  {id:'p5', t:'Dictation history (copy / re-run)', c:'UX', p:'P2', s:'Backlog', n:'Small window of recent transcripts and outputs.'},
+  {id:'p6', t:'Auto-learning dictionary', c:'Intelligence', p:'P2', s:'Backlog', n:'Offer to add a term when the user corrects a word.'},
+  {id:'p7', t:'In-app feedback when falling back to batch', c:'UX', p:'P2', s:'Backlog', n:'Quiet hint so behaviour is never mysterious.'},
+  {id:'p8', t:'Tests for new features', c:'Quality', p:'P2', s:'Backlog', n:'Smart-prompt building, vocab parsing, clipboard restore, realtime fallback.'},
+  {id:'p9', t:'Rebuild .exe + update PyInstaller spec', c:'Distribution', p:'P2', s:'Backlog', n:'Bundle websockets if live transcription is wanted in the packaged app.'},
+  {id:'p10', t:'First-run onboarding', c:'Distribution', p:'P2', s:'Backlog', n:'API key entry + mic test + 30-second tutorial.'},
+  {id:'p11', t:'Cost visibility', c:'UX', p:'P2', s:'Backlog', n:'Approximate per-dictation / monthly API cost from usage stats.'},
+
+  // --- Pending: P3 ---
+  {id:'p12', t:'Window icon for Settings', c:'UX', p:'P3', s:'Backlog', n:'Reuse the tray mic icon.'},
+  {id:'p13', t:'Multi-language support', c:'Intelligence', p:'P3', s:'Backlog', n:'Auto-detect or per-session language.'},
+  {id:'p14', t:'Speaker diarization', c:'Intelligence', p:'P3', s:'Backlog', n:'Distinguish speakers (Phase 2).'},
+  {id:'p15', t:'Persistent memory profile', c:'Intelligence', p:'P3', s:'Backlog', n:'Cross-session preferences/profile.'},
+  {id:'p16', t:'Mobile companion app', c:'Distribution', p:'P3', s:'Backlog', n:'Phase 2.'},
+  {id:'p17', t:'WhatsApp integration', c:'Distribution', p:'P3', s:'Backlog', n:'Phase 2.'},
+  {id:'p18', t:'VS Code extension version', c:'Distribution', p:'P3', s:'Backlog', n:'Phase 2.'},
+  {id:'p19', t:'Deepgram provider', c:'Reliability', p:'P3', s:'Backlog', n:'Only if OpenAI quality ever falls short (per OpenAI-only policy).'},
+  {id:'p20', t:'Configurable AI provider abstraction', c:'Reliability', p:'P3', s:'Backlog', n:'Make the rewrite provider swappable; low priority per policy.'},
+  {id:'p21', t:'Self-host / offline mode', c:'Distribution', p:'P3', s:'Backlog', n:'Fully local pipeline option.'},
+];
+
+const STATUSES = ['Backlog', 'In Progress', 'Done'];
+const PRI_ORDER = {P1: 0, P2: 1, P3: 2};
+const KEY = id => 'flowai-backlog-' + id;
+
+function status(item) { return localStorage.getItem(KEY(item.id)) || item.s; }
+
+function render() {
+  const q = document.getElementById('search').value.toLowerCase();
+  const fp = document.getElementById('fPriority').value;
+  const fs = document.getElementById('fStatus').value;
+  const fc = document.getElementById('fCategory').value;
+
+  const rows = ITEMS
+    .map(it => ({...it, _s: status(it)}))
+    .filter(it => (!fp || it.p === fp) && (!fs || it._s === fs) && (!fc || it.c === fc)
+      && (!q || (it.t + ' ' + it.n + ' ' + it.c).toLowerCase().includes(q)))
+    .sort((a, b) => (PRI_ORDER[a.p] - PRI_ORDER[b.p]) || a.id.localeCompare(b.id));
+
+  const tbody = document.getElementById('rows');
+  tbody.innerHTML = rows.length ? rows.map(it => `
+    <tr class="${it._s === 'Done' ? 'done' : ''}">
+      <td class="title">${esc(it.t)}<div class="notes">${esc(it.n)}</div></td>
+      <td><span class="badge cat">${esc(it.c)}</span></td>
+      <td><span class="badge pri-${it.p}">${it.p}</span></td>
+      <td>
+        <select class="status st-${it._s}" data-id="${it.id}">
+          ${STATUSES.map(s => `<option ${s === it._s ? 'selected' : ''}>${s}</option>`).join('')}
+        </select>
+      </td>
+    </tr>`).join('') : `<tr><td colspan="4" class="empty">No items match your filters.</td></tr>`;
+
+  tbody.querySelectorAll('select.status').forEach(sel => {
+    sel.addEventListener('change', e => {
+      localStorage.setItem(KEY(e.target.dataset.id), e.target.value);
+      render();
+    });
+  });
+  renderStats();
+}
+
+function renderStats() {
+  const all = ITEMS.map(it => ({...it, _s: status(it)}));
+  const by = s => all.filter(it => it._s === s).length;
+  const open = all.filter(it => it._s !== 'Done').length;
+  document.getElementById('stats').innerHTML = [
+    ['Total', all.length], ['Open', open], ['In Progress', by('In Progress')],
+    ['Done', by('Done')], ['P1 open', all.filter(it => it._s !== 'Done' && it.p === 'P1').length],
+  ].map(([l, n]) => `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
+}
+
+function esc(s) { return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+// Populate category filter
+const cats = [...new Set(ITEMS.map(i => i.c))].sort();
+const fcSel = document.getElementById('fCategory');
+cats.forEach(c => { const o = document.createElement('option'); o.textContent = c; fcSel.appendChild(o); });
+
+['search', 'fPriority', 'fStatus', 'fCategory'].forEach(id =>
+  document.getElementById(id).addEventListener('input', render));
+document.getElementById('reset').addEventListener('click', () => {
+  ITEMS.forEach(it => localStorage.removeItem(KEY(it.id)));
+  render();
+});
+
+render();
+</script>
+</body>
+</html>
