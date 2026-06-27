@@ -37,6 +37,9 @@ a = Analysis(
         'pynput.mouse._win32',
         # stdlib modules sometimes missed
         'winreg',
+        # websockets (live transcription) — imported lazily, list explicitly
+        'websockets',
+        'websockets.asyncio.client',
     ],
     hookspath=[],
     hooksconfig={},
