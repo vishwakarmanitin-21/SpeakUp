@@ -163,22 +163,14 @@ class Pipeline:
             # 2. Transcribe — realtime (experimental) or batch (cloud/local)
             self._set_state(PipelineState.TRANSCRIBING)
             if self._use_realtime and self._realtime is not None:
+                # start() never raises and stop_and_transcribe() falls back to the
+                # standard cloud path internally, so live transcription can't lose
+                # a dictation. A genuine error (e.g. network fully down) propagates
+                # to the outer handler below.
                 try:
                     if self._realtime_task is not None:
-                        await self._realtime_task  # ensure connected + streaming
+                        await self._realtime_task
                     raw_text = await self._realtime.stop_and_transcribe()
-                except Exception as e:
-                    logger.error("Realtime transcription failed: %s", e)
-                    try:
-                        await self._realtime.close()
-                    except Exception:
-                        pass
-                    from src.services.error_handler import TranscriptionError
-                    raise TranscriptionError(
-                        f"Realtime transcription failed: {e}",
-                        "Live transcription failed. Turn off 'Live transcription' "
-                        "in Settings to use the standard mode.",
-                    ) from e
                 finally:
                     self._use_realtime = False
                     self._realtime = None
