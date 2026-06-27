@@ -187,6 +187,7 @@ class SettingsDialog(QDialog):
         # --- Buttons ---
         btn_layout = QHBoxLayout()
         self._save_btn = QPushButton("Save")
+        self._save_btn.setObjectName("primary")  # accent-filled primary action
         self._cancel_btn = QPushButton("Cancel")
         btn_layout.addStretch()
         btn_layout.addWidget(self._save_btn)
@@ -196,21 +197,88 @@ class SettingsDialog(QDialog):
         self._save_btn.clicked.connect(self._save)
         self._cancel_btn.clicked.connect(self.reject)
 
-        # Style
+        # Tooltips for the non-obvious settings
+        self._whisper_model_combo.setToolTip(
+            "gpt-4o-transcribe is the most accurate; gpt-4o-mini-transcribe is "
+            "faster; whisper-1 is the legacy model.")
+        self._temperature_spin.setToolTip(
+            "Lower = more faithful to your words; higher = more creative. "
+            "0.2 recommended.")
+        self._default_mode_combo.setToolTip(
+            "Smart auto-detects the app you're typing into (chat, email, editor, "
+            "document) and formats to match.")
+        self._output_mode_combo.setToolTip(
+            "Auto-paste inserts at your cursor. Clipboard copies only. "
+            "Preview shows a window first.")
+        self._keep_clipboard_check.setToolTip(
+            "Off (recommended): your previous clipboard is restored after pasting. "
+            "On: the dictated text stays on the clipboard.")
+        self._stream_output_check.setToolTip(
+            "Insert the result as it's written instead of all at once at the end "
+            "(auto-paste only).")
+        self._realtime_check.setToolTip(
+            "Experimental: transcribe while you speak via the OpenAI Realtime API "
+            "for the lowest latency. Needs the 'realtime' add-on; falls back to "
+            "standard transcription if unavailable.")
+        self._include_selection_check.setToolTip(
+            "Use your currently selected text as context (captured via Ctrl+C). "
+            "Skipped automatically in terminals.")
+
+        # Grey out settings that don't apply to the current choices
+        self._transcription_provider_combo.currentIndexChanged.connect(
+            self._update_dependent_states)
+        self._auto_stop_check.toggled.connect(self._update_dependent_states)
+
+        # Style — dark theme with readable labels and a single accent (mic blue)
         self.setStyleSheet("""
-            QDialog { background-color: #2d2d2d; color: #ddd; }
-            QGroupBox { color: #aaa; border: 1px solid #555;
-                        border-radius: 4px; margin-top: 8px; padding-top: 16px; }
-            QGroupBox::title { subcontrol-origin: margin; left: 10px; }
-            QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
-                background-color: #3d3d3d; color: #fff;
-                border: 1px solid #555; padding: 4px; border-radius: 3px; }
-            QCheckBox { color: #ddd; }
-            QPushButton { background-color: #3d3d3d; color: white;
-                          border: 1px solid #555; padding: 6px 20px;
-                          border-radius: 4px; }
-            QPushButton:hover { background-color: #555; }
+            QDialog { background-color: #262626; }
+            QLabel { color: #e8e8e8; }
+            QLabel:disabled { color: #777; }
+            QGroupBox {
+                color: #4FC3F7; font-weight: bold;
+                border: 1px solid #4a4a4a; border-radius: 6px;
+                margin-top: 14px; padding: 12px 10px 6px 10px; }
+            QGroupBox::title {
+                subcontrol-origin: margin; subcontrol-position: top left;
+                left: 10px; padding: 0 4px; }
+            QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QPlainTextEdit {
+                background-color: #3a3a3a; color: #ffffff;
+                border: 1px solid #5a5a5a; padding: 5px; border-radius: 4px;
+                selection-background-color: #4FC3F7; selection-color: #062430; }
+            QLineEdit:focus, QComboBox:focus, QSpinBox:focus,
+            QDoubleSpinBox:focus, QPlainTextEdit:focus { border: 1px solid #4FC3F7; }
+            QComboBox QAbstractItemView {
+                background-color: #3a3a3a; color: #ffffff;
+                selection-background-color: #4FC3F7; selection-color: #062430; }
+            QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled,
+            QDoubleSpinBox:disabled { color: #777; background-color: #333; }
+            QCheckBox { color: #e8e8e8; spacing: 8px; }
+            QCheckBox:disabled { color: #777; }
+            QCheckBox::indicator {
+                width: 16px; height: 16px; border-radius: 3px;
+                border: 1px solid #6a6a6a; background-color: #3a3a3a; }
+            QCheckBox::indicator:checked {
+                background-color: #4FC3F7; border-color: #4FC3F7; }
+            QCheckBox::indicator:hover { border-color: #4FC3F7; }
+            QPushButton {
+                background-color: #3d3d3d; color: #ffffff;
+                border: 1px solid #5a5a5a; padding: 7px 22px; border-radius: 5px; }
+            QPushButton:hover { background-color: #4a4a4a; }
+            QPushButton#primary {
+                background-color: #4FC3F7; color: #062430;
+                font-weight: bold; border: none; }
+            QPushButton#primary:hover { background-color: #6fd0fb; }
         """)
+
+    def _update_dependent_states(self) -> None:
+        """Enable only the settings relevant to the current selections."""
+        is_local = self._transcription_provider_combo.currentData() == "local"
+        self._local_model_combo.setEnabled(is_local)
+        # Cloud speech model and live transcription apply only to the cloud provider.
+        self._whisper_model_combo.setEnabled(not is_local)
+        self._realtime_check.setEnabled(not is_local)
+        # Silence timeout only matters when auto-stop is on.
+        self._silence_timeout_spin.setEnabled(self._auto_stop_check.isChecked())
 
     def _load_current_settings(self) -> None:
         """Populate fields from current config."""
@@ -287,6 +355,9 @@ class SettingsDialog(QDialog):
 
         # Personal dictionary
         self._vocab_edit.setPlainText(", ".join(self._config.custom_vocabulary))
+
+        # Reflect dependent enable/disable state for the loaded values
+        self._update_dependent_states()
 
     def _save(self) -> None:
         """Validate and save settings."""
