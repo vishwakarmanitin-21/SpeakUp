@@ -22,6 +22,7 @@ a = Analysis(
         (os.path.join(ROOT, 'config_defaults.json'), '.'),
         (os.path.join(ROOT, '.env.example'), '.'),
         (os.path.join(ROOT, 'user_guide.html'), '.'),
+        (os.path.join(ROOT, 'assets', 'icon.png'), '.'),
     ],
     hiddenimports=[
         # qasync needs explicit import
@@ -79,5 +80,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,  # Uses default; can add .ico file later
+    icon=os.path.join(ROOT, 'assets', 'icon.ico'),
 )

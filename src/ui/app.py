@@ -61,6 +61,18 @@ def _make_tray_pixmap(size: int = 64) -> QPixmap:
     return pm
 
 
+def _app_icon() -> QIcon:
+    """Return the SpeakUp icon from the bundled PNG, falling back to a drawn one."""
+    if getattr(sys, "frozen", False):
+        base = Path(getattr(sys, "_MEIPASS"))
+    else:
+        base = Path(__file__).resolve().parent.parent.parent / "assets"
+    png = base / "icon.png"
+    if png.exists():
+        return QIcon(str(png))
+    return QIcon(_make_tray_pixmap())
+
+
 def _open_user_guide() -> None:
     """Open the bundled HTML user guide in the default browser."""
     if getattr(sys, "frozen", False):
@@ -85,7 +97,7 @@ def _create_tray_icon(
 ) -> QSystemTrayIcon:
     """Create system tray icon with context menu."""
     tray = QSystemTrayIcon(app)
-    tray.setIcon(QIcon(_make_tray_pixmap()))
+    tray.setIcon(_app_icon())
     tray.setToolTip("SpeakUp - Voice AI Assistant")
 
     menu = QMenu()
@@ -158,6 +170,7 @@ def run_app() -> None:
 
     app = QApplication(sys.argv)
     app.setApplicationName("SpeakUp")
+    app.setWindowIcon(_app_icon())
     app.setQuitOnLastWindowClosed(False)
 
     # Set up asyncio event loop integrated with Qt
