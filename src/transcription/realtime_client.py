@@ -141,23 +141,21 @@ class RealtimeTranscriber:
             finalized: list[str] = []
             partial = ""
             sent = 0
-            committed = False
-            idle_deadline = 0.0
+            deltas = 0
+            stop_at = 0.0
+            last_event = loop.time()
             hard_deadline = loop.time() + 600.0
 
             while True:
-                # Stream any newly-captured audio (from frame 0 — nothing clipped).
+                # Stream newly-captured audio (server VAD transcribes it live).
                 sent = await self._flush_from(ws, sent)
 
-                # On release: flush the tail and commit the in-progress segment.
-                if self._stop and not committed:
+                # On release: send the tail. Do NOT commit — server VAD already
+                # consumes the buffer, so a manual commit hits an empty buffer.
+                if self._stop and stop_at == 0.0:
                     sent = await self._flush_from(ws, sent)
-                    try:
-                        await ws.send(json.dumps({"type": _EVT_AUDIO_COMMIT}))
-                    except Exception:
-                        pass
-                    committed = True
-                    idle_deadline = loop.time() + 1.5
+                    stop_at = loop.time()
+                    last_event = loop.time()
 
                 # Poll for one event.
                 raw = None
@@ -176,28 +174,32 @@ class RealtimeTranscriber:
                     if event:
                         etype = event.get("type", "")
                         if etype.endswith(_SUFFIX_DELTA):
+                            deltas += 1
                             partial += event.get("delta", "")
+                            last_event = loop.time()
                             self._emit_caption((" ".join(finalized) + " " + partial).strip())
                         elif etype.endswith(_SUFFIX_COMPLETED):
                             seg = (event.get("transcript") or partial).strip()
                             if seg:
                                 finalized.append(seg)
                             partial = ""
+                            last_event = loop.time()
                             self._emit_caption(" ".join(finalized).strip())
-                            if committed:
-                                idle_deadline = loop.time() + 0.8
                         elif etype == "error":
-                            raise RuntimeError(
-                                event.get("error", {}).get("message", "realtime error"))
+                            logger.warning("Realtime error event: %s",
+                                           event.get("error", {}).get("message", "?"))
 
-                # Finish once committed and transcripts have stopped arriving.
-                if committed and loop.time() > idle_deadline:
-                    break
+                # After release: finish once transcripts go quiet (or a hard cap).
+                if stop_at:
+                    now = loop.time()
+                    if now - last_event > 0.8 or now - stop_at > 3.0:
+                        break
                 if loop.time() > hard_deadline:
                     break
 
-            transcript = " ".join(finalized).strip() or partial.strip()
-            logger.info("Realtime: %d segment(s), %d chars", len(finalized), len(transcript))
+            transcript = (" ".join(finalized) + " " + partial).strip()
+            logger.info("Realtime: %d delta(s), %d segment(s), %d chars",
+                        deltas, len(finalized), len(transcript))
             self._result.set_result(transcript or None)
         except Exception as e:
             logger.warning("Realtime session failed (%s); using batch fallback", e)
