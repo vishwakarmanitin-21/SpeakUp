@@ -102,6 +102,18 @@ class Config:
         """Location of the .env file (next to the exe when frozen, else project root)."""
         return _PROJECT_ROOT / ".env"
 
+    @property
+    def data_dir(self) -> Path:
+        """Writable per-user data directory (usage stats, learned suggestions, …)."""
+        return _PROJECT_ROOT
+
+    # --- Onboarding ---
+
+    @property
+    def onboarding_complete(self) -> bool:
+        """Whether the first-run setup wizard has been completed/dismissed."""
+        return bool(self._get("onboarding_complete", False))
+
     # --- API Keys (from environment) ---
 
     @property

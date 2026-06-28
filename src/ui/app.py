@@ -12,8 +12,6 @@ from PyQt5.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
-    QInputDialog,
-    QLineEdit,
     QMenu,
     QMessageBox,
     QSystemTrayIcon,
@@ -114,6 +112,14 @@ def _create_tray_icon(
     guide_action.triggered.connect(_open_user_guide)
     menu.addAction(guide_action)
 
+    usage_action = QAction("Usage && cost…", menu)
+    usage_action.triggered.connect(_show_usage)
+    menu.addAction(usage_action)
+
+    setup_action = QAction("Run setup again", menu)
+    setup_action.triggered.connect(_run_onboarding_again)
+    menu.addAction(setup_action)
+
     menu.addSeparator()
 
     quit_action = QAction("Quit", menu)
@@ -125,39 +131,53 @@ def _create_tray_icon(
     return tray
 
 
-def _ensure_api_key_present() -> bool:
-    """Offer first-run key entry. Returns True if a key is set; never blocks launch.
+def _run_first_run_if_needed() -> bool:
+    """Show the onboarding wizard on first run. Returns True if a key is set.
 
-    If the user has no key yet, they can cancel — the app still opens and they
-    can add the key any time from the tray menu -> Settings.
+    Never blocks launch — onboarding is skippable and the key can be added later
+    from tray → Settings. Marks itself complete so it won't reappear.
     """
-    key = os.getenv("OPENAI_API_KEY", "").strip()
-    if key and key != "sk-your-key-here":
-        return True
+    from src.ui.components.onboarding_dialog import OnboardingDialog
 
-    text, ok = QInputDialog.getText(
-        None,
-        "SpeakUp - Welcome",
-        "Enter your OpenAI API key to start dictating.\n"
-        "(Stored privately on this PC; never shared.)\n\n"
-        "No key yet? Click Cancel — SpeakUp will still open, and you can add it\n"
-        "any time from the tray menu → Settings.",
-        echo=QLineEdit.Password,
-    )
-
-    if ok and text.strip():
-        api_key = text.strip()
-        os.environ["OPENAI_API_KEY"] = api_key
+    if not Config().onboarding_complete:
         try:
-            env_path = Config().env_path
-            with open(env_path, "w", encoding="utf-8") as f:
-                f.write(f"OPENAI_API_KEY={api_key}\n")
-            Config().reload()
-            logger.info("API key saved")
+            OnboardingDialog().exec_()
         except Exception as e:
-            logger.error("Could not save API key: %s", e)
-        return True
-    return False
+            logger.warning("Onboarding failed: %s", e)
+    return OnboardingDialog.has_api_key()
+
+
+def _run_onboarding_again() -> None:
+    """Re-open the setup wizard from the tray."""
+    try:
+        from src.ui.components.onboarding_dialog import OnboardingDialog
+        OnboardingDialog().exec_()
+    except Exception as e:
+        logger.warning("Could not open setup: %s", e)
+
+
+def _show_usage() -> None:
+    """Show a usage + approximate-cost summary."""
+    try:
+        from src.services.usage_tracker import get_cost_summary, get_summary
+        s = get_summary()
+        c = get_cost_summary()
+        msg = (
+            f"This month ({c['month_label']}):\n"
+            f"   • {c['month_runs']} dictations\n"
+            f"   • ~${c['month_cost']:.2f} estimated\n\n"
+            f"Lifetime:\n"
+            f"   • {s['total_runs']} dictations\n"
+            f"   • {s['total_words_generated']:,} words written\n"
+            f"   • ~${c['total_cost']:.2f} estimated total"
+            f" (~${c['avg_cost']:.4f} per dictation)\n"
+            f"   • ~{s['estimated_minutes_saved']:.0f} minutes of typing saved\n\n"
+            "Costs are rough estimates from public list prices — check your "
+            "OpenAI / Deepgram dashboard for exact billing."
+        )
+        QMessageBox.information(None, "SpeakUp — Usage & cost", msg)
+    except Exception as e:
+        QMessageBox.warning(None, "SpeakUp — Usage & cost", f"Couldn't load usage: {e}")
 
 
 def run_app() -> None:
@@ -177,9 +197,9 @@ def run_app() -> None:
     # Load config (this loads .env)
     config = Config()
 
-    # First run: offer key entry, but NEVER block launch — the app opens either
-    # way and the user can add the key any time from tray → Settings.
-    has_key = _ensure_api_key_present()
+    # First run: show the onboarding wizard (skippable), but NEVER block launch —
+    # the app opens either way and the user can add the key later via Settings.
+    has_key = _run_first_run_if_needed()
 
     # Create pipeline and overlay
     pipeline = Pipeline()
