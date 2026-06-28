@@ -22,8 +22,10 @@ Voice AI productivity tool that converts speech into structured, intelligent tex
 - **Compact Mode** — Wispr Flow-style minimal bar that expands on hover to reveal controls; collapses back when mouse leaves
 - **Settings Panel** — Configure API keys, GPT model, Whisper model, transcription provider (cloud/local), local model size, hotkey, output mode, widget position/size, auto-start, context toggles, silence timeout; all changes hot-reload immediately
 - **Auto-Start with Windows** — Optional registry-based startup entry; toggle in Settings to launch SpeakUp on Windows boot
-- **System Tray** — Runs in background with Show/Hide, Settings, Quit menu; programmatic microphone icon
-- **First-Run Setup** — GUI prompt for API key if no .env file found; CLI mode prompts via stdin and saves to .env
+- **System Tray** — Runs in background with Show/Hide, Settings, User Guide, Usage & cost, Run setup again, and Quit; programmatic microphone icon
+- **First-Run Onboarding** — A skippable 3-step wizard on first launch: API key entry, a microphone test with a live level meter, and a 30-second tutorial; tracked by `onboarding_complete` and re-runnable from the tray. (CLI mode still prompts via stdin.)
+- **Auto-Learning Dictionary** — Watches your dictations for recurring proper-noun-like words not already in your dictionary and offers them as Add/Ignore suggestions in Settings → Personal Dictionary (so the dictionary grows from real use)
+- **Cost Visibility** — Estimates approximate per-dictation, this-month, and lifetime API spend from usage stats (STT per-minute + GPT token list prices); view via tray → Usage & cost
 - **Cancel Pipeline** — Press Escape during recording or processing to abort the current run
 - **Live Hotkey Updates** — Changing the hotkey in Settings takes effect immediately (no restart required)
 - **Windows Key Support** — Full support for `Ctrl+Win` hotkey with stale-state recovery for missed OS key releases
@@ -31,7 +33,7 @@ Voice AI productivity tool that converts speech into structured, intelligent tex
 - **Graceful Error Feedback** — GUI shows "Error" state with tooltip describing the failure (API key missing, microphone unavailable, network error, etc.)
 - **Microphone Safety** — Missing or unavailable microphone raises a clear error instead of crashing
 - **Structured Exceptions** — APIKeyError, RecordingError, TranscriptionError, RewriteError carry user-friendly messages surfaced in the UI
-- **Usage Analytics** — Tracks run count, words transcribed, words generated, and estimated typing time saved; stored locally in `usage_stats.json`
+- **Usage Analytics** — Tracks run count, words transcribed, words generated, estimated typing time saved, and approximate cost; stored locally in `usage_stats.json`
 - **Desktop Shortcut** — VBS launcher runs SpeakUp without a console window; `create_shortcut.vbs` creates a desktop shortcut
 - **Standalone Exe** — PyInstaller build produces a single `SpeakUp.exe` (~85 MB) for easy distribution; no Python installation needed
 - **Automated Tests** — pytest suite covering Config, AudioRecorder, Pipeline, and error hierarchy (19 tests)
@@ -242,7 +244,8 @@ Settings can be changed via the gear icon on the overlay or by editing `config.j
 | `widget_position` | `bottom_center` | Widget position: `bottom_right`, `bottom_left`, or `bottom_center` |
 | `widget_scale` | `compact` | Widget size: `compact` (hover-expand), `normal`, or `large` (2x) |
 | `auto_start` | `false` | Start SpeakUp automatically with Windows |
-| `track_usage` | `true` | Log usage stats to `usage_stats.json` |
+| `track_usage` | `true` | Log usage stats (incl. estimated cost) to `usage_stats.json` |
+| `onboarding_complete` | `false` | Set true once the first-run setup wizard has been completed/dismissed |
 
 ## Privacy & Security
 
