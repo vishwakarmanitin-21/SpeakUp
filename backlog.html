@@ -127,7 +127,7 @@ const ITEMS = [
   {id:'d10', t:'Settings UI redesign', c:'UX', p:'P2', s:'Done', n:'Contrast, accent, scroll area, dark title bar, key show/test, greyed inapplicable options.'},
 
   // --- Pending: P1 ---
-  {id:'p1', t:'Make live mode reliable (isolate realtime socket from qasync)', c:'Live', p:'P1', s:'Backlog', n:'Fixes the qasync getaddrinfo/DNS flakiness so live connects instead of falling back.'},
+  {id:'p1', t:'Make live mode reliable (isolate realtime socket from qasync)', c:'Live', p:'P1', s:'Done', n:'Realtime now runs on its own thread/loop; verified connecting (no DNS fallback), ~1s transcript on release.'},
   {id:'p2', t:'Live caption while speaking', c:'Live', p:'P1', s:'Backlog', n:'Show words forming in the overlay as you talk — the biggest "feels like Wispr Flow" upgrade.'},
   {id:'p3', t:'"Nitin Mode" — style learning', c:'Intelligence', p:'P1', s:'Backlog', n:'Learn the user\'s writing voice from real samples so output sounds personal.'},
 
