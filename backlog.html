@@ -74,6 +74,7 @@
   .st-Done { background: var(--done-bg); color: var(--done); }
   .st-In\ Progress { background: var(--prog-bg); color: var(--prog); }
   .st-Backlog { background: var(--back-bg); color: var(--back); }
+  .st-Parked { background: #ede9fe; color: #6d28d9; }
   .empty { text-align: center; color: var(--muted); padding: 40px; }
   footer { color: var(--muted); font-size: 12px; margin-top: 16px; }
   tr.done td.title { text-decoration: line-through; text-decoration-color: var(--line); }
@@ -94,7 +95,7 @@
   <div class="controls">
     <input id="search" type="text" placeholder="Search backlog…">
     <select id="fPriority"><option value="">All priorities</option><option>P1</option><option>P2</option><option>P3</option></select>
-    <select id="fStatus"><option value="">All statuses</option><option>Backlog</option><option>In Progress</option><option>Done</option></select>
+    <select id="fStatus"><option value="">All statuses</option><option>Backlog</option><option>In Progress</option><option>Parked</option><option>Done</option></select>
     <select id="fCategory"><option value="">All categories</option></select>
     <span class="spacer"></span>
     <button class="link" id="reset">Reset status changes</button>
@@ -139,6 +140,7 @@ const ITEMS = [
   {id:'p9', t:'Rebuild .exe + update PyInstaller spec', c:'Distribution', p:'P2', s:'Backlog', n:'Bundle websockets if live transcription is wanted in the packaged app.'},
   {id:'p10', t:'First-run onboarding', c:'Distribution', p:'P2', s:'Backlog', n:'API key entry + mic test + 30-second tutorial.'},
   {id:'p11', t:'Cost visibility', c:'UX', p:'P2', s:'Backlog', n:'Approximate per-dictation / monthly API cost from usage stats.'},
+  {id:'p22', t:'Code-sign the exe (remove SmartScreen warning)', c:'Distribution', p:'P2', s:'Parked', n:'Removes the "Windows protected your PC" warning for people you share it with. ~$10/mo Azure Trusted Signing; needs account setup. Parked for now.'},
 
   // --- Pending: P3 ---
   {id:'p12', t:'App icon (exe, window, tray)', c:'UX', p:'P3', s:'Done', n:'Multi-resolution SpeakUp icon; replaces the default exe icon.'},
@@ -153,7 +155,7 @@ const ITEMS = [
   {id:'p21', t:'Self-host / offline mode', c:'Distribution', p:'P3', s:'Backlog', n:'Fully local pipeline option.'},
 ];
 
-const STATUSES = ['Backlog', 'In Progress', 'Done'];
+const STATUSES = ['Backlog', 'In Progress', 'Parked', 'Done'];
 const PRI_ORDER = {P1: 0, P2: 1, P3: 2};
 const KEY = id => 'speakup-backlog-' + id;
 
@@ -196,10 +198,11 @@ function render() {
 function renderStats() {
   const all = ITEMS.map(it => ({...it, _s: status(it)}));
   const by = s => all.filter(it => it._s === s).length;
-  const open = all.filter(it => it._s !== 'Done').length;
+  const open = all.filter(it => it._s !== 'Done' && it._s !== 'Parked').length;
   document.getElementById('stats').innerHTML = [
     ['Total', all.length], ['Open', open], ['In Progress', by('In Progress')],
-    ['Done', by('Done')], ['P1 open', all.filter(it => it._s !== 'Done' && it.p === 'P1').length],
+    ['Parked', by('Parked')], ['Done', by('Done')],
+    ['P1 open', all.filter(it => it._s !== 'Done' && it._s !== 'Parked' && it.p === 'P1').length],
   ].map(([l, n]) => `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
 }
 
