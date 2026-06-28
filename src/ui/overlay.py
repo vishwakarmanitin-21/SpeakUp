@@ -36,6 +36,8 @@ class OverlayWidget(QWidget):
     hotkey_released = pyqtSignal()
     # Live caption text from the realtime worker thread (thread-safe via signal)
     caption_updated = pyqtSignal(str)
+    # Quiet hints (e.g. fell back to standard transcription); shown as a tray balloon
+    notice_updated = pyqtSignal(str)
 
     # Scale presets: (mic_size, font_factor, margins, spacing, gear_size)
     _SCALES = {
@@ -80,6 +82,7 @@ class OverlayWidget(QWidget):
         self._caption = CaptionWindow()
         self.caption_updated.connect(self._caption.show_caption)
         self._pipeline.set_caption_callback(lambda t: self.caption_updated.emit(t))
+        self._pipeline.set_notice_callback(lambda m: self.notice_updated.emit(m))
 
         # Pipeline state changes update UI
         self._pipeline.set_state_callback(self._on_pipeline_state)

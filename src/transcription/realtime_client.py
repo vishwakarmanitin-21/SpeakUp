@@ -71,6 +71,7 @@ class RealtimeTranscriber:
         self._stop = False
         self._thread: threading.Thread | None = None
         self._result: Future = Future()      # worker sets: transcript str or None
+        self.used_fallback = False            # True if we dropped to batch transcription
 
     def start(self) -> None:
         """Start capturing IMMEDIATELY (sync) and spin up the realtime session.
@@ -81,6 +82,7 @@ class RealtimeTranscriber:
         self._pcm_buffer = []
         self._result = Future()
         self._stop = False
+        self.used_fallback = False
 
         def _cb(indata, frames, time_info, status) -> None:
             if self._active:
@@ -272,6 +274,7 @@ class RealtimeTranscriber:
 
     async def _fallback_batch(self) -> str:
         """Transcribe the locally-captured audio via the reliable cloud path."""
+        self.used_fallback = True
         wav = self._wav_from_buffer()
         if wav is None:
             logger.error("Realtime fallback: no audio captured")

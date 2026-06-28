@@ -208,6 +208,11 @@ def run_app() -> None:
 
     # System tray
     _tray = _create_tray_icon(app, overlay)  # noqa: F841 -- prevent GC
+
+    # Quiet hints (e.g. live transcription fell back to standard mode) → tray balloon
+    overlay.notice_updated.connect(
+        lambda msg: _tray.showMessage("SpeakUp", msg, QSystemTrayIcon.Information, 4000)
+    )
     if not has_key:
         _tray.showMessage(
             "SpeakUp",

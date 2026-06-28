@@ -49,6 +49,7 @@ class Pipeline:
         self._realtime = None
         self._use_realtime = False
         self._on_caption = None  # callable(str) for live captions (set by the UI)
+        self._on_notice = None   # callable(str) for quiet hints (set by the UI)
         self._vocab_learner = None  # lazy VocabLearner (auto-learning dictionary)
 
         # Wire silence detection into audio callback
@@ -77,6 +78,17 @@ class Pipeline:
     def set_caption_callback(self, callback) -> None:
         """Set a callback(str) that receives the live partial transcript."""
         self._on_caption = callback
+
+    def set_notice_callback(self, callback) -> None:
+        """Set a callback(str) for quiet, non-blocking hints (e.g. fallbacks)."""
+        self._on_notice = callback
+
+    def _notify(self, message: str) -> None:
+        if self._on_notice:
+            try:
+                self._on_notice(message)
+            except Exception:
+                pass
 
     def _set_state(self, state: str) -> None:
         self._state = state
@@ -184,12 +196,20 @@ class Pipeline:
                 # standard cloud path internally, so live transcription can't lose
                 # a dictation. A genuine error (e.g. network fully down) propagates
                 # to the outer handler below.
+                fell_back = False
                 try:
                     raw_text = await self._realtime.stop_and_transcribe()
+                    fell_back = bool(getattr(self._realtime, "used_fallback", False))
                 finally:
                     self._use_realtime = False
                     self._realtime = None
+                if fell_back:
+                    self._notify("Live transcription unavailable — used standard mode.")
             else:
+                # If live was requested but couldn't start, this batch path IS the
+                # silent fallback — surface a quiet hint so it's never mysterious.
+                if self._config.transcription_realtime:
+                    self._notify("Live transcription unavailable — used standard mode.")
                 wav_bytes = self._recorder.get_wav_bytes()
                 whisper = get_transcription_client()
                 raw_text = await whisper.transcribe(wav_bytes)

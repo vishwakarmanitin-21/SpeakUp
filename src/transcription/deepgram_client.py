@@ -62,12 +62,14 @@ class DeepgramTranscriber:
         self._stop = False
         self._thread: threading.Thread | None = None
         self._result: Future = Future()
+        self.used_fallback = False  # True if we dropped to batch transcription
 
     def start(self) -> None:
         """Start capturing immediately (sync) and open the Deepgram stream."""
         self._pcm_buffer = []
         self._result = Future()
         self._stop = False
+        self.used_fallback = False
 
         def _cb(indata, frames, time_info, status) -> None:
             if self._active:
@@ -228,6 +230,7 @@ class DeepgramTranscriber:
         return buf
 
     async def _fallback_batch(self) -> str:
+        self.used_fallback = True
         wav = self._wav_from_buffer()
         if wav is None:
             logger.error("Deepgram fallback: no audio captured")
