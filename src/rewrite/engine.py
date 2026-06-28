@@ -1,19 +1,45 @@
 from __future__ import annotations
 
+import logging
+
 from openai import AsyncOpenAI
 
 from src.config import Config
 from src.rewrite.modes import RewriteMode
 from src.rewrite.prompts import SYSTEM_PROMPT, build_user_prompt
 
+logger = logging.getLogger("speakup")
+
 
 class RewriteEngine:
     """Sends transcribed text to GPT for intelligent rewriting.
 
-    The OpenAI client is built lazily per call (reading the current API key and
-    model from config), so the app can launch without a key — it's only needed
-    when you actually dictate, and settings changes apply without a restart.
+    The OpenAI client is built lazily on first dictation (so the app can launch
+    without a key) and then REUSED across dictations with a long HTTP keep-alive,
+    so each request rides a warm connection instead of paying a fresh TLS
+    handshake — cutting first-token latency. It's rebuilt only if the key changes.
     """
+
+    def __init__(self) -> None:
+        self._client: AsyncOpenAI | None = None
+        self._client_key: str | None = None
+
+    def _get_client(self, api_key: str) -> AsyncOpenAI:
+        if self._client is not None and self._client_key == api_key:
+            return self._client
+        try:
+            import httpx
+
+            http_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(60.0, connect=10.0),
+                limits=httpx.Limits(max_keepalive_connections=4, keepalive_expiry=120.0),
+            )
+            self._client = AsyncOpenAI(api_key=api_key, http_client=http_client)
+        except Exception as e:  # pragma: no cover - httpx version/edge cases
+            logger.warning("Falling back to default OpenAI client (%s)", e)
+            self._client = AsyncOpenAI(api_key=api_key)
+        self._client_key = api_key
+        return self._client
 
     async def rewrite(
         self,
@@ -31,7 +57,7 @@ class RewriteEngine:
             mode, raw_text, context, app_hint=app_hint, vocabulary=vocabulary
         )
         # Raises APIKeyError (a user-friendly SpeakUpError) if no key is set yet.
-        client = AsyncOpenAI(api_key=config.openai_api_key)
+        client = self._get_client(config.openai_api_key)
 
         try:
             response = await client.chat.completions.create(
@@ -69,7 +95,7 @@ class RewriteEngine:
         user_prompt = build_user_prompt(
             mode, raw_text, context, app_hint=app_hint, vocabulary=vocabulary
         )
-        client = AsyncOpenAI(api_key=config.openai_api_key)
+        client = self._get_client(config.openai_api_key)
 
         try:
             stream = await client.chat.completions.create(
