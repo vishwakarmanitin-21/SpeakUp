@@ -151,9 +151,9 @@ const ITEMS = [
   {id:'p16', t:'Mobile companion app', c:'Distribution', p:'P3', s:'Backlog', n:'Phase 2.'},
   {id:'p17', t:'WhatsApp integration', c:'Distribution', p:'P3', s:'Backlog', n:'Phase 2.'},
   {id:'p18', t:'VS Code extension version', c:'Distribution', p:'P3', s:'Backlog', n:'Phase 2.'},
-  {id:'p19', t:'Deepgram provider', c:'Reliability', p:'P3', s:'Backlog', n:'Only if OpenAI quality ever falls short (per OpenAI-only policy).'},
-  {id:'p20', t:'Configurable AI provider abstraction', c:'Reliability', p:'P3', s:'Backlog', n:'Make the rewrite provider swappable; low priority per policy.'},
-  {id:'p21', t:'Self-host / offline mode', c:'Distribution', p:'P3', s:'Backlog', n:'Fully local pipeline option.'},
+  {id:'p19', t:'Deepgram provider', c:'Reliability', p:'P3', s:'Backlog', n:'Deepgram already powers live captions. Remaining: let Deepgram also do the FINAL/standard transcript (not just captions) and act as an automatic backup if OpenAI transcription quality or availability ever drops. Per OpenAI-only policy, only pursue if OpenAI genuinely falls short.'},
+  {id:'p20', t:'Configurable AI provider abstraction', c:'Reliability', p:'P3', s:'Backlog', n:'A clean internal "swap the engine" layer so transcription/rewrite providers (OpenAI, Deepgram, local, future) can be changed from Settings without rewiring code. Today providers are wired in ad-hoc. Low priority while OpenAI is the sole default.'},
+  {id:'p21', t:'Self-host / offline mode', c:'Distribution', p:'P3', s:'Backlog', n:'Run the whole pipeline on the user\'s own PC with no internet, API keys, or per-use cost (max privacy). Local speech-to-text already exists (faster-whisper provider); the missing piece is a LOCAL rewrite model to replace OpenAI GPT for the cleanup step.'},
 ];
 
 const STATUSES = ['Backlog', 'In Progress', 'Parked', 'Done'];
