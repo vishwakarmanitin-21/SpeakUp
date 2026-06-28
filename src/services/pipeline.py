@@ -105,8 +105,13 @@ class Pipeline:
         self._realtime = None
         if self._config.transcription_realtime:
             try:
-                from src.transcription.realtime_client import RealtimeTranscriber
-                self._realtime = RealtimeTranscriber(on_caption=self._on_caption)
+                if self._config.deepgram_api_key:
+                    # Deepgram streams true word-by-word interim captions.
+                    from src.transcription.deepgram_client import DeepgramTranscriber
+                    self._realtime = DeepgramTranscriber(on_caption=self._on_caption)
+                else:
+                    from src.transcription.realtime_client import RealtimeTranscriber
+                    self._realtime = RealtimeTranscriber(on_caption=self._on_caption)
                 self._realtime.start()  # synchronous — capture begins immediately
                 self._use_realtime = True
             except Exception as e:

@@ -116,6 +116,15 @@ class Config:
             )
         return key
 
+    @property
+    def deepgram_api_key(self) -> str:
+        """Optional Deepgram key (DEEPGRAM_API_KEY) for live word-by-word captions.
+
+        Returns '' if not set — Deepgram is optional; without it, live mode uses
+        OpenAI's (segment-based) realtime transcription.
+        """
+        return os.getenv("DEEPGRAM_API_KEY", "").strip()
+
     # --- Model Settings ---
 
     @property
