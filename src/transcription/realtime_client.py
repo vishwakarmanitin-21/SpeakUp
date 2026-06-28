@@ -6,16 +6,18 @@ released, instead of being uploaded and transcribed afterwards.
 
 Requires the optional dependency:  pip install -e ".[realtime]"
 
-Design — realtime can NEVER lose a dictation:
-  * The microphone starts capturing immediately and every frame is kept in a
-    local buffer, regardless of WebSocket state.
-  * The WebSocket connect is attempted (with one retry) but never fatal.
-  * On ANY realtime failure (connect, protocol, empty result), we transcribe
-    the captured audio via the standard cloud path (WhisperClient), which uses
-    the SDK's reliable DNS resolution.
+Why a dedicated thread + loop:
+  The WebSocket runs on its OWN asyncio event loop in a background thread,
+  isolated from qasync. qasync's event loop resolves DNS unreliably on Windows
+  (intermittent `getaddrinfo failed`), which made live mode fall back to batch.
+  A clean asyncio loop resolves DNS normally, so live mode actually connects.
 
-⚠️ EXPERIMENTAL: the exact Realtime event strings are centralised below so they
-can be adjusted against OpenAI's live docs without hunting through the logic.
+Resilience — realtime can NEVER lose a dictation:
+  * The microphone starts capturing immediately; every frame is kept in a local
+    buffer regardless of WebSocket state.
+  * Connect is attempted (with one retry) but never fatal.
+  * On ANY realtime failure (connect, protocol, timeout, empty result) the
+    captured audio is transcribed via the standard cloud path (WhisperClient).
 """
 from __future__ import annotations
 
@@ -24,6 +26,8 @@ import base64
 import io
 import json
 import logging
+import threading
+from concurrent.futures import Future
 
 import numpy as np
 import sounddevice as sd
@@ -56,38 +60,41 @@ async def _ws_connect(url: str, headers: dict):
 
 
 class RealtimeTranscriber:
-    """Streams mic audio to the OpenAI Realtime API; falls back to batch on failure."""
+    """Streams mic audio to the OpenAI Realtime API on its own thread/loop."""
 
     def __init__(self) -> None:
         config = Config()
         model = config.whisper_model
         self._model = model if "transcribe" in model else "gpt-4o-transcribe"
-        self._vocab = config.custom_vocabulary
-        self._ws = None
         self._mic: sd.InputStream | None = None
-        self._loop: asyncio.AbstractEventLoop | None = None
-        self._audio_q: asyncio.Queue | None = None
-        self._sender_task: asyncio.Future | None = None
-        self._transcript_parts: list[str] = []
-        self._pcm_buffer: list[bytes] = []  # local copy for batch fallback
+        self._pcm_buffer: list[bytes] = []          # local copy for batch fallback
         self._active = False
-        self._connected = False
+        # Cross-thread coordination with the realtime worker loop.
+        self._worker_loop: asyncio.AbstractEventLoop | None = None
+        self._aq: asyncio.Queue | None = None
+        self._thread: threading.Thread | None = None
+        self._result: Future = Future()             # worker sets: transcript str or None
 
     async def start(self) -> None:
-        """Start capturing immediately, then try to connect (never fatal)."""
-        self._loop = asyncio.get_event_loop()
-        self._audio_q = asyncio.Queue()
-        self._transcript_parts = []
+        """Start mic capture and the background realtime session (non-blocking)."""
         self._pcm_buffer = []
-        self._connected = False
+        self._result = Future()
+        self._worker_loop = None
+        self._aq = None
 
-        # 1. Start the mic FIRST so audio is captured no matter what the WS does.
+        # Mic capture runs on a PortAudio thread. Always buffer; also hand frames
+        # to the worker loop once it exists.
         def _cb(indata, frames, time_info, status) -> None:
-            if not self._active or self._loop is None:
+            if not self._active:
                 return
             pcm16 = (np.clip(indata[:, 0], -1.0, 1.0) * 32767).astype("<i2").tobytes()
-            self._pcm_buffer.append(pcm16)            # always kept for fallback
-            self._loop.call_soon_threadsafe(self._audio_q.put_nowait, pcm16)
+            self._pcm_buffer.append(pcm16)
+            loop, aq = self._worker_loop, self._aq
+            if loop is not None and aq is not None:
+                try:
+                    loop.call_soon_threadsafe(aq.put_nowait, pcm16)
+                except RuntimeError:
+                    pass  # worker loop already closed
 
         self._active = True
         self._mic = sd.InputStream(
@@ -95,61 +102,96 @@ class RealtimeTranscriber:
         )
         self._mic.start()
 
-        # 2. Try to connect the realtime WS (one retry for transient DNS blips).
-        for attempt in range(2):
-            try:
-                # Read the key here so a missing key falls back to batch cleanly.
-                headers = {"Authorization": f"Bearer {Config().openai_api_key}"}
-                self._ws = await _ws_connect(_REALTIME_URL, headers)
-                await self._ws.send(json.dumps({
-                    "type": _EVT_SESSION_UPDATE,
-                    "session": {
-                        "type": "transcription",
-                        "audio": {
-                            "input": {
-                                "format": {"type": "audio/pcm", "rate": _SAMPLE_RATE},
-                                "transcription": {"model": self._model, "language": "en"},
-                                "turn_detection": None,  # push-to-talk: one segment
-                            },
+        # Run the realtime session on a dedicated thread with a clean asyncio loop.
+        self._thread = threading.Thread(target=self._run_session, daemon=True)
+        self._thread.start()
+
+    def _run_session(self) -> None:
+        try:
+            asyncio.run(self._session())
+        except Exception as e:  # pragma: no cover - thread/loop edge cases
+            logger.warning("Realtime session thread error: %s", e)
+        finally:
+            if not self._result.done():
+                self._result.set_result(None)
+
+    async def _session(self) -> None:
+        self._worker_loop = asyncio.get_running_loop()
+        self._aq = asyncio.Queue()
+        ws = None
+        try:
+            for attempt in range(2):
+                try:
+                    headers = {"Authorization": f"Bearer {Config().openai_api_key}"}
+                    ws = await _ws_connect(_REALTIME_URL, headers)
+                    break
+                except Exception as e:
+                    if attempt == 0:
+                        logger.warning("Realtime connect failed (%s); retrying", e)
+                        await asyncio.sleep(0.4)
+                        continue
+                    raise
+            await ws.send(json.dumps({
+                "type": _EVT_SESSION_UPDATE,
+                "session": {
+                    "type": "transcription",
+                    "audio": {
+                        "input": {
+                            "format": {"type": "audio/pcm", "rate": _SAMPLE_RATE},
+                            "transcription": {"model": self._model, "language": "en"},
+                            "turn_detection": None,  # push-to-talk: one segment
                         },
                     },
-                }))
-                self._connected = True
-                self._sender_task = asyncio.ensure_future(self._sender())
-                logger.info("Realtime transcription started (model=%s, rate=%d)",
-                            self._model, int(self._mic.samplerate))
-                return
-            except Exception as e:
-                if attempt == 0:
-                    logger.warning("Realtime connect attempt failed (%s); retrying", e)
-                    await asyncio.sleep(0.4)
-                    continue
-                logger.warning(
-                    "Realtime unavailable (%s); capturing locally for batch fallback", e
-                )
-                self._connected = False
-                self._ws = None
+                },
+            }))
+            logger.info("Realtime transcription started (model=%s)", self._model)
 
-    async def _sender(self) -> None:
-        """Drain captured audio and append it to the realtime buffer."""
-        chunks = 0
-        try:
+            # Stream audio until the main thread signals stop (None sentinel).
+            sent = 0
             while True:
-                data = await self._audio_q.get()
-                if data is None:  # sentinel = stop
+                data = await self._aq.get()
+                if data is None:
                     break
-                chunks += 1
-                await self._ws.send(json.dumps({
+                sent += 1
+                await ws.send(json.dumps({
                     "type": _EVT_AUDIO_APPEND,
                     "audio": base64.b64encode(data).decode("ascii"),
                 }))
-        except Exception as e:
-            logger.warning("Realtime audio sender stopped: %s", e)
-        finally:
-            logger.info("Realtime: sent %d audio chunks", chunks)
+            logger.info("Realtime: sent %d audio chunks", sent)
 
-    async def stop_and_transcribe(self, timeout: float = 20.0) -> str:
-        """Stop the mic; return the realtime transcript, or batch-fallback text."""
+            await ws.send(json.dumps({"type": _EVT_AUDIO_COMMIT}))
+            transcript = await asyncio.wait_for(self._read_until_complete(ws), 20.0)
+            self._result.set_result(transcript.strip() or None)
+        except Exception as e:
+            logger.warning("Realtime session failed (%s); using batch fallback", e)
+            if not self._result.done():
+                self._result.set_result(None)
+        finally:
+            if ws is not None:
+                try:
+                    await ws.close()
+                except Exception:
+                    pass
+
+    @staticmethod
+    async def _read_until_complete(ws) -> str:
+        parts: list[str] = []
+        async for raw in ws:
+            try:
+                event = json.loads(raw)
+            except Exception:
+                continue
+            etype = event.get("type", "")
+            if etype.endswith(_SUFFIX_DELTA):
+                parts.append(event.get("delta", ""))
+            elif etype.endswith(_SUFFIX_COMPLETED):
+                return event.get("transcript") or "".join(parts)
+            elif etype == "error":
+                raise RuntimeError(event.get("error", {}).get("message", "realtime error"))
+        return "".join(parts)
+
+    async def stop_and_transcribe(self, timeout: float = 25.0) -> str:
+        """Stop the mic, finish the session, and return the transcript or fallback."""
         self._active = False
         if self._mic is not None:
             try:
@@ -159,44 +201,29 @@ class RealtimeTranscriber:
                 pass
             self._mic = None
 
-        # Try the live path if we ever connected.
-        if self._connected and self._ws is not None:
-            try:
-                if self._audio_q is not None:
-                    self._audio_q.put_nowait(None)
-                if self._sender_task is not None:
-                    await self._sender_task
-                await self._ws.send(json.dumps({"type": _EVT_AUDIO_COMMIT}))
-                transcript = await asyncio.wait_for(self._read_until_complete(), timeout)
-                if transcript.strip():
-                    return transcript.strip()
-                logger.warning("Realtime returned empty transcript; using batch fallback")
-            except Exception as e:
-                logger.warning("Realtime transcribe failed (%s); using batch fallback", e)
-            finally:
-                await self.close()
+        # Tell the worker loop to stop streaming and commit.
+        self._signal_stop()
 
-        # Fallback: transcribe the locally-captured audio via the standard path.
+        # Await the worker's result from the qasync loop without blocking it.
+        transcript = None
+        try:
+            transcript = await asyncio.wait_for(asyncio.wrap_future(self._result), timeout)
+        except Exception as e:
+            logger.warning("Realtime result unavailable (%s); using batch fallback", e)
+
+        if transcript:
+            return transcript
         return await self._fallback_batch()
 
-    async def _read_until_complete(self) -> str:
-        async for raw in self._ws:
+    def _signal_stop(self) -> None:
+        loop, aq = self._worker_loop, self._aq
+        if loop is not None and aq is not None:
             try:
-                event = json.loads(raw)
-            except Exception:
-                continue
-            etype = event.get("type", "")
-            if etype.endswith(_SUFFIX_DELTA):
-                self._transcript_parts.append(event.get("delta", ""))
-            elif etype.endswith(_SUFFIX_COMPLETED):
-                return event.get("transcript") or "".join(self._transcript_parts)
-            elif etype == "error":
-                msg = event.get("error", {}).get("message", "unknown error")
-                raise RuntimeError(f"Realtime server error: {msg}")
-        return "".join(self._transcript_parts)
+                loop.call_soon_threadsafe(aq.put_nowait, None)
+            except RuntimeError:
+                pass
 
     def _wav_from_buffer(self) -> io.BytesIO | None:
-        """Build an in-memory WAV from the captured PCM16 frames."""
         if not self._pcm_buffer:
             return None
         arr = np.frombuffer(b"".join(self._pcm_buffer), dtype="<i2")
@@ -207,7 +234,7 @@ class RealtimeTranscriber:
         return buf
 
     async def _fallback_batch(self) -> str:
-        """Transcribe the captured audio with the reliable cloud path."""
+        """Transcribe the locally-captured audio via the reliable cloud path."""
         wav = self._wav_from_buffer()
         if wav is None:
             logger.error("Realtime fallback: no audio captured")
@@ -227,10 +254,4 @@ class RealtimeTranscriber:
             except Exception:
                 pass
             self._mic = None
-        if self._ws is not None:
-            try:
-                await self._ws.close()
-            except Exception:
-                pass
-            self._ws = None
-        self._connected = False
+        self._signal_stop()
