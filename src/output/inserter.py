@@ -89,20 +89,26 @@ class OutputInserter:
         pyperclip.copy(text)
 
     def _paste(self, text: str) -> None:
-        """Put text on the clipboard and send Ctrl+V (atomic, no dropped chars)."""
+        """Put text on the clipboard and send Ctrl+V (atomic, no dropped chars).
+
+        The two short sleeps guard against the clipboard not being set before
+        Ctrl+V (would paste stale text) and the next chunk overwriting before
+        this paste is consumed. Kept minimal for snappy streaming.
+        """
         pyperclip.copy(text)
-        time.sleep(0.04)
+        time.sleep(0.025)
         self._keyboard.press(Key.ctrl)
         self._keyboard.press("v")
         self._keyboard.release("v")
         self._keyboard.release(Key.ctrl)
-        time.sleep(0.03)
+        time.sleep(0.018)
 
     # --- Streaming output (reliable: paste in chunks, never per-character) ---
 
     def begin_stream(self) -> None:
         """Start a streaming insert. Snapshots the clipboard for later restore."""
         self._stream_buffer = ""
+        self._first_chunk_done = False
         self._saved_clipboard = None
         if not self._config.keep_on_clipboard:
             try:
@@ -115,7 +121,13 @@ class OutputInserter:
         if not delta:
             return
         self._stream_buffer += delta
-        if self._should_flush(self._stream_buffer):
+        # Flush the very first words ASAP so text starts appearing immediately,
+        # then fall back to clause/sentence-sized chunks for the rest.
+        if not self._first_chunk_done:
+            if self._should_flush_first(self._stream_buffer):
+                self._flush_stream()
+                self._first_chunk_done = True
+        elif self._should_flush(self._stream_buffer):
             self._flush_stream()
 
     def end_stream(self) -> None:
@@ -137,6 +149,15 @@ class OutputInserter:
         if buf.endswith((". ", "! ", "? ", "; ", ": ", ", ")):
             return True
         return len(buf) >= 60 and buf.endswith(" ")
+
+    @staticmethod
+    def _should_flush_first(buf: str) -> bool:
+        """Aggressive boundary for the FIRST chunk — get a few words on screen fast."""
+        if "\n" in buf:
+            return True
+        if buf.endswith((". ", "! ", "? ", "; ", ": ", ", ")):
+            return True
+        return len(buf) >= 14 and buf.endswith(" ")
 
     def _flush_stream(self) -> None:
         if not self._stream_buffer:
