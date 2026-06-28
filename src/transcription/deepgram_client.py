@@ -95,8 +95,21 @@ class DeepgramTranscriber:
     async def _session(self) -> None:
         ws = None
         try:
+            # Retry connect — the first DNS lookup of a fresh host on Windows's
+            # threaded event loop intermittently fails with getaddrinfo; a retry
+            # after the resolver warms up succeeds (same fix as the OpenAI path).
             key = Config().deepgram_api_key
-            ws = await _ws_connect(_DG_URL, {"Authorization": f"Token {key}"})
+            headers = {"Authorization": f"Token {key}"}
+            for attempt in range(3):
+                try:
+                    ws = await _ws_connect(_DG_URL, headers)
+                    break
+                except Exception as e:
+                    if attempt < 2:
+                        logger.warning("Deepgram connect failed (%s); retrying", e)
+                        await asyncio.sleep(0.5)
+                        continue
+                    raise
             logger.info("Deepgram live transcription started")
 
             loop = asyncio.get_running_loop()
