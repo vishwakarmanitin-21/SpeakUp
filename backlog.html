@@ -149,12 +149,12 @@ const ITEMS = [
   // --- Pending: P2 ---
   {id:'p4', t:'Re-run last dictation in another mode', c:'UX', p:'P2', s:'Backlog', n:'Re-rewrite the last transcript without re-speaking.'},
   {id:'p5', t:'Dictation history (copy / re-run)', c:'UX', p:'P2', s:'Backlog', n:'Small window of recent transcripts and outputs.'},
-  {id:'p6', t:'Auto-learning dictionary', c:'Intelligence', p:'P2', s:'Backlog', n:'Offer to add a term when the user corrects a word.'},
+  {id:'p6', t:'Auto-learning dictionary', c:'Intelligence', p:'P2', s:'Done', n:'Implemented: VocabLearner watches dictations for recurring proper-noun-like words not already in your dictionary and surfaces them as Add/Ignore suggestions in Settings → Personal Dictionary (threshold 2; common words filtered; stored in vocab_suggestions.json). Awaiting on-device check.'},
   {id:'p7', t:'In-app feedback when falling back to batch', c:'UX', p:'P2', s:'Backlog', n:'Quiet hint so behaviour is never mysterious.'},
   {id:'p8', t:'Tests for new features', c:'Quality', p:'P2', s:'Backlog', n:'Smart-prompt building, vocab parsing, clipboard restore, realtime fallback.'},
   {id:'p9', t:'Rebuild .exe + update PyInstaller spec', c:'Distribution', p:'P2', s:'Backlog', n:'Bundle websockets if live transcription is wanted in the packaged app.'},
-  {id:'p10', t:'First-run onboarding', c:'Distribution', p:'P2', s:'Backlog', n:'API key entry + mic test + 30-second tutorial.'},
-  {id:'p11', t:'Cost visibility', c:'UX', p:'P2', s:'Backlog', n:'Approximate per-dictation / monthly API cost from usage stats.'},
+  {id:'p10', t:'First-run onboarding', c:'Distribution', p:'P2', s:'Done', n:'Implemented: 3-step OnboardingDialog on first run (API key → mic test with live level meter → 30-sec tutorial), skippable, sets onboarding_complete. Re-runnable from tray → Run setup again. Awaiting on-device check.'},
+  {id:'p11', t:'Cost visibility', c:'UX', p:'P2', s:'Done', n:'Implemented: usage_tracker estimates per-run cost (STT per-minute + GPT tokens at approx list prices) and aggregates this-month/lifetime; viewable via tray → Usage & cost. Older runs backfilled from word counts. Awaiting on-device check.'},
   {id:'p22', t:'Code-sign the exe (remove SmartScreen warning)', c:'Distribution', p:'P2', s:'Parked', n:'Removes the "Windows protected your PC" warning for people you share it with. ~$10/mo Azure Trusted Signing; needs account setup. Parked for now.'},
 
   // --- Pending: P3 ---
