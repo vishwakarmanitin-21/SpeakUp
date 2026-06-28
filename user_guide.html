@@ -40,6 +40,7 @@
 <ul>
 <li>A Windows PC.</li>
 <li>An <strong>OpenAI API key</strong> (steps below). You pay OpenAI directly for usage — typically a few cents for a long dictation session.</li>
+<li><em>(Optional)</em> a <strong>Deepgram API key</strong> — only for smooth word-by-word live captions. Everything works without it (see section 6).</li>
 </ul>
 <div class="note">An OpenAI <em>API key</em> is different from a ChatGPT Plus subscription. ChatGPT Plus does <strong>not</strong> include API access — you need an API key from the developer platform below.</div>
 
@@ -78,27 +79,39 @@
 <tr><td>Hotkey</td><td>The push-to-talk keys. Change if <code>Ctrl+Win</code> clashes.</td></tr>
 <tr><td>Personal Dictionary</td><td>Add names/jargon so they're always spelled right.</td></tr>
 <tr><td>Live transcription (experimental)</td><td>Transcribe while you speak for lower lag.</td></tr>
+<tr><td>Deepgram API Key</td><td><em>(Optional)</em> enables smooth word-by-word live captions. See section 6.</td></tr>
 </table>
 
-<h2>6. Which AI models give the best results?</h2>
+<h2>6. Live captions (optional — Deepgram)</h2>
+<p>By default SpeakUp uses OpenAI for everything and works great. OpenAI transcribes in <strong>chunks</strong> (after each pause), so live captions appear a sentence at a time. For smooth <strong>word-by-word</strong> captions that fill in as you talk, add an optional <strong>Deepgram</strong> key:</p>
+<ol>
+<li>Sign up free at <a href="https://console.deepgram.com">console.deepgram.com</a> — new accounts include free credit, plenty for personal dictation.</li>
+<li>Create an API key and copy it.</li>
+<li>In SpeakUp: <strong>Settings → Transcription → Deepgram API Key</strong> → paste → <strong>Save</strong>.</li>
+<li>Make sure <strong>Live transcription</strong> is ticked.</li>
+</ol>
+<p>OpenAI still does the cleanup, and if Deepgram is ever unreachable SpeakUp falls back to OpenAI automatically — you never lose a dictation. Leave the field blank to skip it.</p>
+
+<h2>7. Which AI models give the best results?</h2>
 <ul>
 <li><strong>Speech-to-text:</strong> <code>gpt-4o-transcribe</code> — most accurate; <code>gpt-4o-mini-transcribe</code> for speed.</li>
 <li><strong>Cleanup:</strong> <code>gpt-4o-mini</code> — fast and high quality; <code>gpt-4o</code> for maximum polish.</li>
-<li><strong>Lowest lag:</strong> turn on <strong>Live transcription</strong>; if it can't connect it falls back automatically, so you never lose a dictation.</li>
+<li><strong>Live captions / lowest lag:</strong> turn on <strong>Live transcription</strong>; add a <strong>Deepgram</strong> key (section 6) for word-by-word. Either way it falls back automatically if the live path can't connect.</li>
 </ul>
 
-<h2>7. Privacy &amp; where things are stored</h2>
+<h2>8. Privacy &amp; where things are stored</h2>
 <ul>
-<li>Your API key is stored only on your PC, privately under <code>%APPDATA%\SpeakUp</code>. It's never bundled into the app or shared.</li>
-<li>Audio is processed in memory and sent to OpenAI for transcription — not saved to disk.</li>
+<li>Your API keys are stored only on your PC, privately under <code>%APPDATA%\SpeakUp</code>. They're never bundled into the app or shared.</li>
+<li>Audio is processed in memory and sent to OpenAI (and Deepgram, if enabled) for transcription — not saved to disk.</li>
 </ul>
 
-<h2>8. Troubleshooting</h2>
+<h2>9. Troubleshooting</h2>
 <table>
 <tr><th>Problem</th><th>Fix</th></tr>
 <tr><td>"API key" error / nothing happens</td><td>Settings → paste your key → click <strong>Test</strong>.</td></tr>
 <tr><td>Hotkey doesn't trigger</td><td>Settings → change the <strong>Hotkey</strong> (e.g. <code>ctrl+shift+space</code>).</td></tr>
 <tr><td>No text appears</td><td>Make sure your cursor is in a text field before releasing the keys.</td></tr>
+<tr><td>Live captions don't appear</td><td>Confirm Live transcription is on and a Deepgram key is saved. If your network can't reach Deepgram it falls back to OpenAI; try DNS <code>1.1.1.1</code> / <code>8.8.8.8</code>.</td></tr>
 <tr><td>Microphone error</td><td>Check your mic is connected and not in use by another app.</td></tr>
 <tr><td>Start fresh</td><td>Delete the <code>%APPDATA%\SpeakUp</code> folder; the app will prompt for your key again.</td></tr>
 </table>

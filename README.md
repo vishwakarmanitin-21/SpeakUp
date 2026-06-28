@@ -7,6 +7,7 @@ Voice AI productivity tool that converts speech into structured, intelligent tex
 - **Push-to-Talk Recording** — Hold `Ctrl+Win` to record, release to process (configurable hotkey)
 - **Auto-Stop on Silence** — Optional RMS-based silence detection with configurable threshold and timeout
 - **Speech-to-Text** — OpenAI cloud (`gpt-4o-mini-transcribe` by default, `gpt-4o-transcribe` or legacy `whisper-1` selectable) or faster-whisper (local, offline); switchable per-session in Settings
+- **Live Captions** — With live transcription on, words appear in a floating caption as you speak. OpenAI gives per-pause (segment) captions; an optional **Deepgram** key (`DEEPGRAM_API_KEY`) upgrades this to smooth word-by-word streaming. OpenAI still does the rewrite, and the live path falls back to OpenAI batch on any failure
 - **Disfluency Cleanup** — Every mode strips filler words ("um", "uh", "like"), false starts, and repetitions, resolves self-corrections ("Tuesday — no, Wednesday" → "Wednesday"), and adds punctuation/paragraphs — turning a raw transcript into the text you *meant* to write, while preserving your wording and tone
 - **Inline Voice Commands** — Speak formatting instructions and they're applied, not typed: "new paragraph", "bullet that", "numbered list", "scratch that", "quote that", "in caps"
 - **Smart Auto-Format Mode** — Default mode detects the app you're dictating into (chat, email, code editor, document, browser) and matches the right tone and structure automatically — casual in Slack, email shape in Gmail, a code comment in VS Code
@@ -73,6 +74,7 @@ pip install -e .
 ```bash
 cp .env.example .env
 # Edit .env and add your OpenAI API key
+# (optional) add DEEPGRAM_API_KEY for word-by-word live captions
 ```
 
 #### 3. Run
@@ -233,7 +235,8 @@ Settings can be changed via the gear icon on the overlay or by editing `config.j
 | `auto_stop_on_silence` | `false` | Stop recording after silence |
 | `silence_timeout_ms` | `2000` | Silence duration before auto-stop |
 | `transcription_provider` | `cloud` | `cloud` (OpenAI Whisper API) or `local` (faster-whisper) |
-| `transcription_realtime` | `false` | **Experimental.** Stream audio over the OpenAI Realtime API to transcribe *while you speak* (lowest latency). Requires `pip install -e ".[realtime]"`; falls back to standard transcription on any failure |
+| `transcription_realtime` | `false` | **Experimental.** Transcribe *while you speak* (lowest latency, live captions). Uses Deepgram streaming if `DEEPGRAM_API_KEY` is set (word-by-word), else the OpenAI Realtime API (per-pause). Requires `pip install -e ".[realtime]"`; falls back to standard transcription on any failure |
+| `realtime_vad_silence_ms` | `250` | OpenAI live mode only: silence (ms) before a caption segment closes. Lower = more frequent captions, but can split words |
 | `whisper_local_model_size` | `base` | Local model: `tiny`, `base`, `small`, `medium`, `large` |
 | `include_vscode_file` | `false` | Include active VS Code file content as context (Windows) |
 | `widget_position` | `bottom_center` | Widget position: `bottom_right`, `bottom_left`, or `bottom_center` |

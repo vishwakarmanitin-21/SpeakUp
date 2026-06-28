@@ -13,6 +13,8 @@ This guide is for someone installing SpeakUp for the first time. No coding neede
 - An **OpenAI API key** (instructions below). This is what powers the speech-to-text
   and the cleanup. You pay OpenAI directly for what you use — typically a few cents
   for a long session of dictation.
+- *(Optional)* a **Deepgram API key** — only if you want smooth **word-by-word live
+  captions** while you speak. Everything works without it; see section 6.
 
 > **Note:** an OpenAI *API key* is different from a ChatGPT Plus subscription.
 > ChatGPT Plus does **not** include API access — you need an API key from the
@@ -70,39 +72,62 @@ you can also choose Email, LinkedIn Post, PRD, Structured Notes, and more.
 | **Hotkey** | The push-to-talk keys. Change if `Ctrl+Win` clashes with something. |
 | **Personal Dictionary** | Add your names/jargon so they're always spelled right. |
 | **Live transcription (experimental)** | Transcribe while you speak for lower lag. |
+| **Deepgram API Key** | *(Optional)* enables smooth word-by-word live captions. See below. |
 | **Start with Windows** | Launch SpeakUp automatically when you log in. |
 
 ---
 
-## 6. Which AI models give the best results?
+## 6. Live captions (optional — Deepgram)
 
-SpeakUp uses OpenAI for both steps. Recommended:
+By default, SpeakUp uses OpenAI for everything and works great. OpenAI transcribes
+in **chunks** (after each pause), so if you turn on Live transcription you'll see
+captions appear a sentence at a time.
+
+For the smooth **word-by-word** caption that fills in *as you talk*, add an optional
+**Deepgram** key:
+
+1. Sign up free at **https://console.deepgram.com** — new accounts include free
+   credit, plenty for personal dictation.
+2. Create an API key and copy it.
+3. In SpeakUp: **Settings → Transcription → Deepgram API Key** → paste it → **Save**.
+4. Make sure **Live transcription** is ticked.
+
+Now captions stream word-by-word while you speak. OpenAI still does the cleanup, and
+if Deepgram is ever unreachable, SpeakUp falls back to OpenAI automatically — you
+never lose a dictation. Leave the Deepgram field blank if you don't want it.
+
+---
+
+## 7. Which AI models give the best results?
+
+SpeakUp uses OpenAI for the cleanup and (by default) the speech-to-text. Recommended:
 
 - **Speech-to-text:** `gpt-4o-transcribe` — the most accurate, best for long or
   technical speech. Switch to `gpt-4o-mini-transcribe` if you prefer speed/lower cost.
 - **Cleanup/formatting:** `gpt-4o-mini` — fast, cheap, and high quality for this task.
   Use `gpt-4o` if you want maximum polish on important writing (a little slower).
-- **Lowest lag:** turn on **Live transcription** (experimental) to transcribe while
-  you talk. If it ever can't connect, SpeakUp automatically falls back to the standard
-  mode, so you never lose a dictation.
+- **Lowest lag / live captions:** turn on **Live transcription**; add a **Deepgram**
+  key (section 6) for the smooth word-by-word caption. Either way, if the live path
+  can't connect, SpeakUp falls back to the standard mode automatically.
 
 ---
 
-## 7. Your privacy & where things are stored
+## 8. Your privacy & where things are stored
 
-- Your API key is stored **only on your own PC**, privately under your user profile
-  (`%APPDATA%\SpeakUp`). It is never bundled into the app and never shared.
-- Audio is processed in memory and sent to OpenAI for transcription — it is **not
-  saved to disk**.
+- Your API keys are stored **only on your own PC**, privately under your user profile
+  (`%APPDATA%\SpeakUp`). They are never bundled into the app and never shared.
+- Audio is processed in memory and sent to OpenAI (and Deepgram, if you enabled it)
+  for transcription — it is **not saved to disk**.
 - Settings and your personal dictionary stay on your PC.
 
 ---
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 | Problem | Fix |
 |---|---|
 | "API key" error / nothing happens | Open Settings → paste your key → click **Test** to confirm it works. |
+| Live captions don't appear | Confirm Live transcription is on and a Deepgram key is saved. If your network can't reach Deepgram, captions fall back to OpenAI (per-pause) — try switching your PC's DNS to 1.1.1.1 / 8.8.8.8. |
 | The hotkey doesn't trigger | Settings → change the **Hotkey** to something else (e.g. `ctrl+shift+space`). |
 | No text appears | Make sure your cursor is in a text field before you release the keys. |
 | Microphone error | Check your mic is connected and not in use by another app. |
