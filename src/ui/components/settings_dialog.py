@@ -150,6 +150,17 @@ class SettingsDialog(QDialog):
         self._realtime_check.setObjectName("experimental")  # amber-tinted label
         transcription_layout.addRow(self._realtime_check)
 
+        self._deepgram_key_input = QLineEdit()
+        self._deepgram_key_input.setEchoMode(QLineEdit.Password)
+        self._deepgram_key_input.setPlaceholderText(
+            "optional — for smooth word-by-word live captions"
+        )
+        self._deepgram_key_input.setToolTip(
+            "Optional. With Live transcription on, a Deepgram key streams "
+            "word-by-word captions as you speak. Without it, OpenAI is used."
+        )
+        transcription_layout.addRow("Deepgram API Key:", self._deepgram_key_input)
+
         transcription_group.setLayout(transcription_layout)
         layout.addWidget(transcription_group)
 
@@ -375,9 +386,9 @@ class SettingsDialog(QDialog):
 
     def _load_current_settings(self) -> None:
         """Populate fields from current config."""
-        # API key from environment
-        api_key = os.getenv("OPENAI_API_KEY", "")
-        self._api_key_input.setText(api_key)
+        # API keys from environment
+        self._api_key_input.setText(os.getenv("OPENAI_API_KEY", ""))
+        self._deepgram_key_input.setText(os.getenv("DEEPGRAM_API_KEY", ""))
 
         # Model
         idx = self._model_combo.findText(self._config.gpt_model)
@@ -502,36 +513,41 @@ class SettingsDialog(QDialog):
             if self._hotkey_listener is not None:
                 self._hotkey_listener.update_hotkey(new_hotkey)
 
-            # Save API key to .env if changed
+            # Save API keys to .env if changed
             new_key = self._api_key_input.text().strip()
             if new_key and new_key != os.getenv("OPENAI_API_KEY", ""):
-                self._save_api_key(new_key)
+                self._set_env_var("OPENAI_API_KEY", new_key)
+
+            new_dg = self._deepgram_key_input.text().strip()
+            if new_dg != os.getenv("DEEPGRAM_API_KEY", ""):
+                self._set_env_var("DEEPGRAM_API_KEY", new_dg)
 
             self.accept()
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to save settings: {e}")
 
-    def _save_api_key(self, key: str) -> None:
-        """Update the API key in the .env file."""
+    def _set_env_var(self, name: str, value: str) -> None:
+        """Upsert a KEY=value line in the .env file and the live environment."""
         # Use the config's resolved path so this works in the packaged .exe
         # (next to the exe) as well as from source.
         env_path = self._config.env_path
         lines = []
-        key_found = False
+        found = False
+        prefix = f"{name}="
 
         if env_path.exists():
             with open(env_path, encoding="utf-8") as f:
                 for line in f:
-                    if line.startswith("OPENAI_API_KEY="):
-                        lines.append(f"OPENAI_API_KEY={key}\n")
-                        key_found = True
+                    if line.startswith(prefix):
+                        lines.append(f"{name}={value}\n")
+                        found = True
                     else:
                         lines.append(line)
 
-        if not key_found:
-            lines.append(f"OPENAI_API_KEY={key}\n")
+        if not found:
+            lines.append(f"{name}={value}\n")
 
         with open(env_path, "w", encoding="utf-8") as f:
             f.writelines(lines)
 
-        os.environ["OPENAI_API_KEY"] = key
+        os.environ[name] = value
