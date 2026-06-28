@@ -48,6 +48,7 @@ class Pipeline:
         # Experimental realtime (transcribe-while-speaking) state.
         self._realtime = None
         self._use_realtime = False
+        self._on_caption = None  # callable(str) for live captions (set by the UI)
 
         # Wire silence detection into audio callback
         self._config = config
@@ -71,6 +72,10 @@ class Pipeline:
 
     def set_silence_callback(self, callback: Callable[[], None]) -> None:
         self._on_silence_detected = callback
+
+    def set_caption_callback(self, callback) -> None:
+        """Set a callback(str) that receives the live partial transcript."""
+        self._on_caption = callback
 
     def _set_state(self, state: str) -> None:
         self._state = state
@@ -101,7 +106,7 @@ class Pipeline:
         if self._config.transcription_realtime:
             try:
                 from src.transcription.realtime_client import RealtimeTranscriber
-                self._realtime = RealtimeTranscriber()
+                self._realtime = RealtimeTranscriber(on_caption=self._on_caption)
                 self._realtime.start()  # synchronous — capture begins immediately
                 self._use_realtime = True
             except Exception as e:

@@ -60,10 +60,11 @@ async def _ws_connect(url: str, headers: dict):
 class RealtimeTranscriber:
     """Streams mic audio to the OpenAI Realtime API on its own thread/loop."""
 
-    def __init__(self) -> None:
+    def __init__(self, on_caption=None) -> None:
         config = Config()
         model = config.whisper_model
         self._model = model if "transcribe" in model else "gpt-4o-transcribe"
+        self._on_caption = on_caption        # callable(str) — live partial text (best-effort)
         self._mic: sd.InputStream | None = None
         self._pcm_buffer: list[bytes] = []   # ALL captured frames (shared, append-only)
         self._active = False
@@ -119,6 +120,8 @@ class RealtimeTranscriber:
                         await asyncio.sleep(0.4)
                         continue
                     raise
+            # Server VAD so the API transcribes WHILE speaking (for live captions);
+            # we accumulate every finalized segment for the full transcript.
             await ws.send(json.dumps({
                 "type": _EVT_SESSION_UPDATE,
                 "session": {
@@ -127,25 +130,75 @@ class RealtimeTranscriber:
                         "input": {
                             "format": {"type": "audio/pcm", "rate": _SAMPLE_RATE},
                             "transcription": {"model": self._model, "language": "en"},
-                            "turn_detection": None,  # push-to-talk: one segment
+                            "turn_detection": {"type": "server_vad"},
                         },
                     },
                 },
             }))
             logger.info("Realtime transcription started (model=%s)", self._model)
 
-            # Stream every captured frame from index 0 (nothing clipped), then
-            # keep up with new frames until stop is signalled.
+            loop = asyncio.get_running_loop()
+            finalized: list[str] = []
+            partial = ""
             sent = 0
-            while not self._stop:
-                sent = await self._flush_from(ws, sent)
-                await asyncio.sleep(0.02)
-            sent = await self._flush_from(ws, sent)  # final flush after stop
-            logger.info("Realtime: sent %d audio chunks", sent)
+            committed = False
+            idle_deadline = 0.0
+            hard_deadline = loop.time() + 600.0
 
-            await ws.send(json.dumps({"type": _EVT_AUDIO_COMMIT}))
-            transcript = await asyncio.wait_for(self._read_until_complete(ws), 20.0)
-            self._result.set_result(transcript.strip() or None)
+            while True:
+                # Stream any newly-captured audio (from frame 0 — nothing clipped).
+                sent = await self._flush_from(ws, sent)
+
+                # On release: flush the tail and commit the in-progress segment.
+                if self._stop and not committed:
+                    sent = await self._flush_from(ws, sent)
+                    try:
+                        await ws.send(json.dumps({"type": _EVT_AUDIO_COMMIT}))
+                    except Exception:
+                        pass
+                    committed = True
+                    idle_deadline = loop.time() + 1.5
+
+                # Poll for one event.
+                raw = None
+                try:
+                    raw = await asyncio.wait_for(ws.recv(), timeout=0.05)
+                except asyncio.TimeoutError:
+                    pass
+                except Exception:
+                    break  # connection closed
+
+                if raw:
+                    try:
+                        event = json.loads(raw)
+                    except Exception:
+                        event = None
+                    if event:
+                        etype = event.get("type", "")
+                        if etype.endswith(_SUFFIX_DELTA):
+                            partial += event.get("delta", "")
+                            self._emit_caption((" ".join(finalized) + " " + partial).strip())
+                        elif etype.endswith(_SUFFIX_COMPLETED):
+                            seg = (event.get("transcript") or partial).strip()
+                            if seg:
+                                finalized.append(seg)
+                            partial = ""
+                            self._emit_caption(" ".join(finalized).strip())
+                            if committed:
+                                idle_deadline = loop.time() + 0.8
+                        elif etype == "error":
+                            raise RuntimeError(
+                                event.get("error", {}).get("message", "realtime error"))
+
+                # Finish once committed and transcripts have stopped arriving.
+                if committed and loop.time() > idle_deadline:
+                    break
+                if loop.time() > hard_deadline:
+                    break
+
+            transcript = " ".join(finalized).strip() or partial.strip()
+            logger.info("Realtime: %d segment(s), %d chars", len(finalized), len(transcript))
+            self._result.set_result(transcript or None)
         except Exception as e:
             logger.warning("Realtime session failed (%s); using batch fallback", e)
             if not self._result.done():
@@ -167,22 +220,13 @@ class RealtimeTranscriber:
             sent += 1
         return sent
 
-    @staticmethod
-    async def _read_until_complete(ws) -> str:
-        parts: list[str] = []
-        async for raw in ws:
+    def _emit_caption(self, text: str) -> None:
+        cb = self._on_caption
+        if cb:
             try:
-                event = json.loads(raw)
+                cb(text)
             except Exception:
-                continue
-            etype = event.get("type", "")
-            if etype.endswith(_SUFFIX_DELTA):
-                parts.append(event.get("delta", ""))
-            elif etype.endswith(_SUFFIX_COMPLETED):
-                return event.get("transcript") or "".join(parts)
-            elif etype == "error":
-                raise RuntimeError(event.get("error", {}).get("message", "realtime error"))
-        return "".join(parts)
+                pass
 
     async def stop_and_transcribe(self, timeout: float = 25.0) -> str:
         """Stop the mic, finish the session, and return the transcript or fallback."""

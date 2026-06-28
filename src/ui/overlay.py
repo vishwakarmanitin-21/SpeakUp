@@ -20,6 +20,7 @@ from src.config import Config
 logger = logging.getLogger("speakup")
 from src.output.inserter import OutputMode
 from src.services.pipeline import Pipeline, PipelineState
+from src.ui.components.caption_window import CaptionWindow
 from src.ui.components.mic_button import MicButton
 from src.ui.components.mode_selector import ModeSelector
 from src.ui.components.preview_window import PreviewWindow
@@ -33,6 +34,8 @@ class OverlayWidget(QWidget):
     # Signals for thread-safe communication from hotkey listener thread
     hotkey_pressed = pyqtSignal()
     hotkey_released = pyqtSignal()
+    # Live caption text from the realtime worker thread (thread-safe via signal)
+    caption_updated = pyqtSignal(str)
 
     # Scale presets: (mic_size, font_factor, margins, spacing, gear_size)
     _SCALES = {
@@ -72,6 +75,11 @@ class OverlayWidget(QWidget):
         self._connect_signals()
         self._apply_scale()
         self._position_widget()
+
+        # Live caption window (shown while dictating with realtime on)
+        self._caption = CaptionWindow()
+        self.caption_updated.connect(self._caption.show_caption)
+        self._pipeline.set_caption_callback(lambda t: self.caption_updated.emit(t))
 
         # Pipeline state changes update UI
         self._pipeline.set_state_callback(self._on_pipeline_state)
@@ -265,6 +273,7 @@ class OverlayWidget(QWidget):
             return
         self._is_recording = True
         self._recording_start = time.monotonic()
+        self._caption.hide_caption()  # clear any stale caption
         self._mic_btn.set_state("recording")
         self._status.set_state("listening")
         self._pipeline.start_recording()
@@ -280,6 +289,7 @@ class OverlayWidget(QWidget):
             logger.info("Recording too short (%.2fs), discarded", elapsed)
             self._is_recording = False
             self._pipeline.cancel()
+            self._caption.hide_caption()
             self._mic_btn.set_state("idle")
             self._status.set_state("idle")
             return
@@ -301,6 +311,7 @@ class OverlayWidget(QWidget):
         """Cancel the current recording or pipeline run."""
         self._is_recording = False
         self._pipeline.cancel()
+        self._caption.hide_caption()
         self._mic_btn.set_state("idle")
         self._status.set_state("idle")
 
@@ -325,6 +336,8 @@ class OverlayWidget(QWidget):
             msg = e.user_message if isinstance(e, SpeakUpError) else str(e)
             self._status.set_state("error", msg)
             logger.error("Pipeline failed: %s", e, exc_info=True)
+        finally:
+            self._caption.hide_caption()
 
     def _show_preview(self, text: str) -> None:
         """Show the preview window with the rewritten text."""
