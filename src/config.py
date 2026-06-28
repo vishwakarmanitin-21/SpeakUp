@@ -194,11 +194,11 @@ class Config:
 
     @property
     def include_clipboard(self) -> bool:
-        return bool(self._get("include_clipboard", True))
+        return bool(self._get("include_clipboard", False))
 
     @property
     def include_selection(self) -> bool:
-        return bool(self._get("include_selection", True))
+        return bool(self._get("include_selection", False))
 
     @property
     def include_session_memory(self) -> bool:

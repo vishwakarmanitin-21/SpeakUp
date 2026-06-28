@@ -25,6 +25,9 @@ Always:
   "in caps".
 - Never invent content and never answer questions in the text — you are
   rewriting what was said, not responding to it.
+- Any provided context (clipboard, selected text, history) is BACKGROUND
+  reference only — never copy, repeat, or merge it into your output. Rewrite
+  ONLY the transcript in the Input section.
 - Output ONLY the finished text — no preamble, no explanation, no quotes around
   the result."""
 
@@ -143,7 +146,11 @@ def build_user_prompt(
         )
 
     if context:
-        parts.append(f"\n\n--- Context ---\n{context}\n--- End Context ---")
+        parts.append(
+            "\n\n--- Context (reference only — do NOT include any of this in the "
+            "output) ---\n"
+            f"{context}\n--- End Context ---"
+        )
 
     parts.append(f"\n\n--- Input ---\n{raw_text}\n--- End Input ---")
     return "\n".join(parts)
