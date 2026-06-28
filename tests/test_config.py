@@ -19,8 +19,8 @@ def test_config_loads_defaults():
     from src.config import Config
 
     config = Config()
-    assert config.whisper_model == "whisper-1"
-    assert config.gpt_model == "gpt-4o-mini"  # updated default
+    assert config.whisper_model == "gpt-4o-transcribe"  # modernised default
+    assert config.gpt_model == "gpt-4o-mini"
     assert config.sample_rate == 16000
     assert config.hotkey == "ctrl+cmd"
 
@@ -58,8 +58,8 @@ def test_config_reload(tmp_path, monkeypatch):
     (tmp_path / "config_defaults.json").write_text(json.dumps(defaults))
 
     import src.config as cfg_module
-    monkeypatch.setattr(cfg_module, "_BUNDLE_DIR", tmp_path)
-    monkeypatch.setattr(cfg_module, "_DATA_DIR", tmp_path)
+    monkeypatch.setattr(cfg_module, "_BUNDLE_ROOT", tmp_path)
+    monkeypatch.setattr(cfg_module, "_PROJECT_ROOT", tmp_path)
     _reset_config()
 
     config = Config()

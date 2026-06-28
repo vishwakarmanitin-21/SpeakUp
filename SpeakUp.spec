@@ -40,6 +40,14 @@ a = Analysis(
         # websockets (live transcription) — imported lazily, list explicitly
         'websockets',
         'websockets.asyncio.client',
+        # App modules imported lazily (inside functions) — list so they're bundled
+        'src.transcription.realtime_client',
+        'src.transcription.deepgram_client',
+        'src.services.vocab_learner',
+        'src.ui.components.caption_window',
+        'src.ui.components.onboarding_dialog',
+        # scipy.io.wavfile is used for the realtime/deepgram WAV fallback
+        'scipy.io.wavfile',
     ],
     hookspath=[],
     hooksconfig={},

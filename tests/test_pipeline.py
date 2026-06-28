@@ -61,8 +61,12 @@ async def test_process_happy_path():
     mock_client = MagicMock()
     mock_client.transcribe = AsyncMock(return_value="hello world")
 
+    # Use clipboard output so the non-streaming rewrite() path runs (streaming is
+    # the default for auto-paste and would instead use rewrite_stream()).
     with patch("src.services.pipeline.get_transcription_client", return_value=mock_client):
-        raw, rewritten = await pipeline.process(RewriteMode.CLEAN_GRAMMAR)
+        raw, rewritten = await pipeline.process(
+            RewriteMode.CLEAN_GRAMMAR, output_mode="clipboard"
+        )
 
     assert raw == "hello world"
     assert rewritten == "Hello World."
