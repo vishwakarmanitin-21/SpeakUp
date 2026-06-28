@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import time
 
 from openai import AsyncOpenAI
 
@@ -23,6 +25,25 @@ class RewriteEngine:
     def __init__(self) -> None:
         self._client: AsyncOpenAI | None = None
         self._client_key: str | None = None
+        self._last_warm = 0.0
+
+    async def warm_up(self) -> None:
+        """Best-effort: open/keep the HTTPS connection warm before a rewrite.
+
+        Fired when recording starts so the TLS handshake is already done by the
+        time you release — making the first dictation (and ones after a long
+        idle) as snappy as repeat ones. Silent and never affects dictation.
+        """
+        try:
+            if time.monotonic() - self._last_warm < 90.0:
+                return  # connection still warm from a recent dictation/warm-up
+            key = os.getenv("OPENAI_API_KEY", "")
+            if not key:
+                return
+            await self._get_client(key).models.list()
+            self._last_warm = time.monotonic()
+        except Exception:
+            pass  # warming is best-effort
 
     def _get_client(self, api_key: str) -> AsyncOpenAI:
         if self._client is not None and self._client_key == api_key:
@@ -58,6 +79,7 @@ class RewriteEngine:
         )
         # Raises APIKeyError (a user-friendly SpeakUpError) if no key is set yet.
         client = self._get_client(config.openai_api_key)
+        self._last_warm = time.monotonic()
 
         try:
             response = await client.chat.completions.create(
@@ -96,6 +118,7 @@ class RewriteEngine:
             mode, raw_text, context, app_hint=app_hint, vocabulary=vocabulary
         )
         client = self._get_client(config.openai_api_key)
+        self._last_warm = time.monotonic()
 
         try:
             stream = await client.chat.completions.create(
