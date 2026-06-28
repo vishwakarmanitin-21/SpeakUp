@@ -216,6 +216,15 @@ class Config:
         return self._get("transcription_provider", "cloud")
 
     @property
+    def realtime_vad_silence_ms(self) -> int:
+        """Silence (ms) before live transcription closes a segment.
+
+        Lower = captions appear more often / sooner, but too low can split
+        words mid-phrase. Default 250 (OpenAI's own default is ~500).
+        """
+        return int(self._get("realtime_vad_silence_ms", 250))
+
+    @property
     def transcription_realtime(self) -> bool:
         """Experimental: stream audio over the OpenAI Realtime API while speaking.
 

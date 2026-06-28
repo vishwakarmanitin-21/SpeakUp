@@ -15,6 +15,7 @@
     "include_session_memory": true,
     "transcription_provider": "cloud",
     "transcription_realtime": false,
+    "realtime_vad_silence_ms": 250,
     "whisper_local_model_size": "base",
     "custom_vocabulary": [],
     "include_vscode_file": false,

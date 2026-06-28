@@ -122,6 +122,9 @@ class RealtimeTranscriber:
                     raise
             # Server VAD so the API transcribes WHILE speaking (for live captions);
             # we accumulate every finalized segment for the full transcript.
+            # Shorter silence_duration_ms = segments close on shorter pauses =
+            # more frequent / less-laggy captions (config-tunable).
+            silence_ms = int(Config().realtime_vad_silence_ms)
             await ws.send(json.dumps({
                 "type": _EVT_SESSION_UPDATE,
                 "session": {
@@ -130,7 +133,12 @@ class RealtimeTranscriber:
                         "input": {
                             "format": {"type": "audio/pcm", "rate": _SAMPLE_RATE},
                             "transcription": {"model": self._model, "language": "en"},
-                            "turn_detection": {"type": "server_vad"},
+                            "turn_detection": {
+                                "type": "server_vad",
+                                "threshold": 0.5,
+                                "prefix_padding_ms": 200,
+                                "silence_duration_ms": silence_ms,
+                            },
                         },
                     },
                 },
