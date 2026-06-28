@@ -128,7 +128,8 @@ const ITEMS = [
 
   // --- Pending: P1 ---
   {id:'p1', t:'Make live mode reliable (isolate realtime socket from qasync)', c:'Live', p:'P1', s:'Done', n:'Realtime now runs on its own thread/loop; verified connecting (no DNS fallback), ~1s transcript on release.'},
-  {id:'p2', t:'Live caption while speaking', c:'Live', p:'P1', s:'In Progress', n:'Implemented: floating caption shows partial transcripts (server VAD) as you talk. Awaiting on-device verification.'},
+  {id:'p2', t:'Live caption while speaking', c:'Live', p:'P1', s:'Done', n:'Verified on-device. Floating caption (blinking caret, stable box) streams word-by-word via Deepgram when DEEPGRAM_API_KEY is set; OpenAI server-VAD (per-pause) otherwise. OpenAI batch fallback. Deepgram key entered in Settings; docs updated.'},
+  {id:'p2b', t:'Snappier instant output (latency)', c:'UX', p:'P1', s:'Done', n:'Warm-up ping on key-press + reused OpenAI client with 120s keep-alive (no per-dictation TLS handshake); streaming front-loads first words and pastes on a background thread that overlaps with generation. Transcript ~0.37s; rewrite is the remaining (inherent LLM) cost.'},
   {id:'p3', t:'"Nitin Mode" — style learning', c:'Intelligence', p:'P1', s:'Backlog', n:'Learn the user\'s writing voice from real samples so output sounds personal.'},
 
   // --- Pending: P2 ---
