@@ -49,6 +49,7 @@ class Pipeline:
         self._realtime = None
         self._use_realtime = False
         self._on_caption = None  # callable(str) for live captions (set by the UI)
+        self._vocab_learner = None  # lazy VocabLearner (auto-learning dictionary)
 
         # Wire silence detection into audio callback
         self._config = config
@@ -248,6 +249,15 @@ class Pipeline:
                     )
                 except Exception:
                     pass
+
+            # 7. Learn candidate dictionary terms from this dictation (best-effort)
+            try:
+                from src.services.vocab_learner import VocabLearner
+                if self._vocab_learner is None:
+                    self._vocab_learner = VocabLearner()
+                self._vocab_learner.observe(rewritten or raw_text)
+            except Exception:
+                pass
 
             elapsed = time.monotonic() - _start
             logger.info("Pipeline complete in %.1fs", elapsed)

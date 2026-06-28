@@ -43,6 +43,7 @@ config.json
 
 # App data
 usage_stats.json
+vocab_suggestions.json
 
 # Multi-machine sync conflict copies (e.g. overlay-Nitin-PC.py)
 *-*-PC.*

@@ -14,6 +14,7 @@ from PyQt5.QtWidgets import (
     QFrame,
     QGroupBox,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QMessageBox,
     QPlainTextEdit,
@@ -39,6 +40,11 @@ class SettingsDialog(QDialog):
         self.setMinimumWidth(450)
         self._config = Config()
         self._hotkey_listener = hotkey_listener
+        try:
+            from src.services.vocab_learner import VocabLearner
+            self._vocab_learner = VocabLearner()
+        except Exception:
+            self._vocab_learner = None
         self._setup_ui()
         self._load_current_settings()
 
@@ -212,6 +218,17 @@ class SettingsDialog(QDialog):
         )
         self._vocab_edit.setFixedHeight(70)
         vocab_layout.addWidget(self._vocab_edit)
+
+        # Auto-learned suggestions (recurring proper nouns from your dictations)
+        self._suggest_label = QLabel("Suggested from your dictations:")
+        self._suggest_label.setStyleSheet("color:#9aa4b0; margin-top:4px;")
+        vocab_layout.addWidget(self._suggest_label)
+        self._suggest_box = QVBoxLayout()
+        self._suggest_box.setSpacing(4)
+        suggest_container = QWidget()
+        suggest_container.setLayout(self._suggest_box)
+        vocab_layout.addWidget(suggest_container)
+
         vocab_group.setLayout(vocab_layout)
         layout.addWidget(vocab_group)
 
@@ -459,9 +476,63 @@ class SettingsDialog(QDialog):
 
         # Personal dictionary
         self._vocab_edit.setPlainText(", ".join(self._config.custom_vocabulary))
+        self._refresh_suggestions()
 
         # Reflect dependent enable/disable state for the loaded values
         self._update_dependent_states()
+
+    def _refresh_suggestions(self) -> None:
+        """Rebuild the auto-learned dictionary suggestion rows."""
+        while self._suggest_box.count():
+            item = self._suggest_box.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+
+        terms = []
+        if self._vocab_learner is not None:
+            try:
+                terms = self._vocab_learner.pending_suggestions()
+            except Exception:
+                terms = []
+
+        self._suggest_label.setVisible(bool(terms))
+        for term in terms[:12]:
+            row = QWidget()
+            h = QHBoxLayout(row)
+            h.setContentsMargins(0, 0, 0, 0)
+            lbl = QLabel(term)
+            lbl.setStyleSheet("font-weight:600;")
+            add_btn = QPushButton("Add")
+            add_btn.setObjectName("compact")
+            ignore_btn = QPushButton("Ignore")
+            ignore_btn.setObjectName("compact")
+            add_btn.clicked.connect(lambda _checked=False, t=term: self._accept_suggestion(t))
+            ignore_btn.clicked.connect(lambda _checked=False, t=term: self._ignore_suggestion(t))
+            h.addWidget(lbl)
+            h.addStretch()
+            h.addWidget(add_btn)
+            h.addWidget(ignore_btn)
+            self._suggest_box.addWidget(row)
+
+    def _accept_suggestion(self, term: str) -> None:
+        if self._vocab_learner is not None:
+            try:
+                self._vocab_learner.accept(term)
+            except Exception:
+                pass
+        # Reflect the newly-added term in the editable box and refresh the list.
+        self._config.reload()
+        self._vocab_edit.setPlainText(", ".join(self._config.custom_vocabulary))
+        self._refresh_suggestions()
+
+    def _ignore_suggestion(self, term: str) -> None:
+        if self._vocab_learner is not None:
+            try:
+                self._vocab_learner.ignore(term)
+            except Exception:
+                pass
+        self._refresh_suggestions()
 
     def _save(self) -> None:
         """Validate and save settings."""
