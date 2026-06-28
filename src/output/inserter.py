@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import queue
+import threading
 import time
 
 import pyperclip
@@ -24,7 +26,11 @@ class OutputInserter:
         self._config = Config()
         self._keyboard = Controller()
         self._stream_buffer = ""
+        self._first_chunk_done = False
         self._saved_clipboard: str | None = None
+        # Background paste worker (set up per streaming run)
+        self._paste_queue: queue.Queue | None = None
+        self._paste_worker: threading.Thread | None = None
 
     def deliver(self, text: str, mode: str | None = None) -> str:
         """Deliver text using the specified output mode.
@@ -103,10 +109,16 @@ class OutputInserter:
         self._keyboard.release(Key.ctrl)
         time.sleep(0.018)
 
-    # --- Streaming output (reliable: paste in chunks, never per-character) ---
+    # --- Streaming output (background paste thread: overlaps with generation) ---
 
     def begin_stream(self) -> None:
-        """Start a streaming insert. Snapshots the clipboard for later restore."""
+        """Start a streaming insert with a background paste worker.
+
+        Pasting (clipboard + Ctrl+V + short sleeps) runs on its own thread so it
+        OVERLAPS with the model still generating — the event loop keeps reading
+        deltas while text is being inserted, instead of stalling on each chunk.
+        A single worker draining a FIFO queue preserves insertion order.
+        """
         self._stream_buffer = ""
         self._first_chunk_done = False
         self._saved_clipboard = None
@@ -115,24 +127,33 @@ class OutputInserter:
                 self._saved_clipboard = pyperclip.paste()
             except Exception:
                 self._saved_clipboard = None
+        self._paste_queue = queue.Queue()
+        self._paste_worker = threading.Thread(target=self._paste_loop, daemon=True)
+        self._paste_worker.start()
 
     def feed_stream(self, delta: str) -> None:
-        """Add a delta to the buffer; flush a chunk when a natural boundary is hit."""
+        """Add a delta to the buffer; enqueue a chunk when a boundary is hit."""
         if not delta:
             return
         self._stream_buffer += delta
-        # Flush the very first words ASAP so text starts appearing immediately,
-        # then fall back to clause/sentence-sized chunks for the rest.
+        # Enqueue the very first words ASAP so text appears immediately, then
+        # fall back to clause/sentence-sized chunks for the rest.
         if not self._first_chunk_done:
             if self._should_flush_first(self._stream_buffer):
-                self._flush_stream()
+                self._enqueue_chunk()
                 self._first_chunk_done = True
         elif self._should_flush(self._stream_buffer):
-            self._flush_stream()
+            self._enqueue_chunk()
 
     def end_stream(self) -> None:
-        """Flush any remaining text and restore the original clipboard."""
-        self._flush_stream()
+        """Flush remaining text, wait for all pastes to finish, restore clipboard."""
+        self._enqueue_chunk()  # trailing partial, if any
+        if self._paste_worker is not None and self._paste_queue is not None:
+            self._paste_queue.put(None)  # sentinel: stop once the queue drains
+            self._paste_worker.join(timeout=10.0)
+        self._paste_worker = None
+        self._paste_queue = None
+
         if not self._config.keep_on_clipboard and self._saved_clipboard is not None:
             time.sleep(0.05)
             try:
@@ -140,6 +161,30 @@ class OutputInserter:
             except Exception:
                 logger.warning("Could not restore previous clipboard contents")
         self._saved_clipboard = None
+
+    def _enqueue_chunk(self) -> None:
+        if not self._stream_buffer:
+            return
+        chunk = self._stream_buffer
+        self._stream_buffer = ""
+        if self._paste_queue is not None:
+            self._paste_queue.put(chunk)
+
+    def _paste_loop(self) -> None:
+        """Drain the queue on a background thread, pasting chunks in order."""
+        q = self._paste_queue
+        if q is None:
+            return
+        while True:
+            chunk = q.get()
+            try:
+                if chunk is None:  # sentinel
+                    return
+                self._paste(chunk)
+            except Exception as e:
+                logger.warning("Streaming paste failed: %s", e)
+            finally:
+                q.task_done()
 
     @staticmethod
     def _should_flush(buf: str) -> bool:
@@ -158,13 +203,3 @@ class OutputInserter:
         if buf.endswith((". ", "! ", "? ", "; ", ": ", ", ")):
             return True
         return len(buf) >= 14 and buf.endswith(" ")
-
-    def _flush_stream(self) -> None:
-        if not self._stream_buffer:
-            return
-        chunk = self._stream_buffer
-        self._stream_buffer = ""
-        try:
-            self._paste(chunk)
-        except Exception as e:
-            logger.warning("Streaming paste failed: %s", e)
