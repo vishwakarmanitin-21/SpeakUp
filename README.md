@@ -6,21 +6,22 @@ Voice AI productivity tool that converts speech into structured, intelligent tex
 
 - **Push-to-Talk Recording** — Hold `Ctrl+Win` to record, release to process (configurable hotkey)
 - **Auto-Stop on Silence** — Optional RMS-based silence detection with configurable threshold and timeout
-- **Speech-to-Text** — OpenAI cloud (`gpt-4o-mini-transcribe` by default, `gpt-4o-transcribe` or legacy `whisper-1` selectable) or faster-whisper (local, offline); switchable per-session in Settings
+- **Speech-to-Text** — OpenAI cloud (`gpt-4o-transcribe` by default — most accurate; `gpt-4o-mini-transcribe` for speed, or legacy `whisper-1`) or faster-whisper (local, offline); switchable in Settings
 - **Live Captions** — With live transcription on, words appear in a floating caption as you speak. OpenAI gives per-pause (segment) captions; an optional **Deepgram** key (`DEEPGRAM_API_KEY`) upgrades this to smooth word-by-word streaming. OpenAI still does the rewrite, and the live path falls back to OpenAI batch on any failure
 - **Disfluency Cleanup** — Every mode strips filler words ("um", "uh", "like"), false starts, and repetitions, resolves self-corrections ("Tuesday — no, Wednesday" → "Wednesday"), and adds punctuation/paragraphs — turning a raw transcript into the text you *meant* to write, while preserving your wording and tone
 - **Inline Voice Commands** — Speak formatting instructions and they're applied, not typed: "new paragraph", "bullet that", "numbered list", "scratch that", "quote that", "in caps"
 - **Smart Auto-Format Mode** — Default mode detects the app you're dictating into (chat, email, code editor, document, browser) and matches the right tone and structure automatically — casual in Slack, email shape in Gmail, a code comment in VS Code
 - **Personal Dictionary** — Add your names, jargon, and acronyms (e.g. Vestora, WealQuest, Supabase); these bias the speech recogniser and correct phonetic near-misses so proper nouns keep their exact spelling
 - **7 Manual Rewrite Modes** — Clean Grammar, Structured Notes, PRD, Professional Email, LinkedIn Post, Developer Comment, Brain Dump (override Smart mode any time)
-- **Context Awareness** — Includes clipboard content, selected text, rolling session memory (last 10 interactions), and optionally the active VS Code file
+- **Context Awareness** — Optionally includes clipboard content and selected text (both **off by default**), rolling session memory (last 10 interactions, on by default), and the active VS Code file — each toggled in Settings
 - **VS Code File Context** — Detects the active file in VS Code from the window title, locates it on disk, and includes its content as context (Windows, opt-in)
 - **Streaming Output** — In auto-paste mode the rewrite is inserted at the cursor in sentence-sized chunks as it's generated, so text starts appearing almost immediately instead of after the whole response completes — reliable even on long passages (toggle in Settings)
+- **Low-Latency Pipeline** — The rewrite connection is warmed on key-press and reused with HTTP keep-alive (no per-dictation TLS handshake), the first words flush immediately, and pasting runs on a background thread that overlaps with generation — so output lands fast and streams smoothly
 - **Smart Output** — Auto-paste at cursor (default), copy to clipboard, or preview window with Copy/Insert/Close buttons
 - **Clipboard-Safe Paste** — Auto-paste restores whatever you had on the clipboard after pasting, so dictation never silently overwrites it; opt in to keep the dictated text on the clipboard via Settings
 - **Desktop Overlay** — Minimal floating PyQt5 widget with mic button (3 visual states), mode selector, status indicator, and settings gear; configurable position (bottom-right, bottom-left, bottom-center) and size (compact, normal, large)
 - **Compact Mode** — Wispr Flow-style minimal bar that expands on hover to reveal controls; collapses back when mouse leaves
-- **Settings Panel** — Configure API keys, GPT model, Whisper model, transcription provider (cloud/local), local model size, hotkey, output mode, widget position/size, auto-start, context toggles, silence timeout; all changes hot-reload immediately
+- **Settings Panel** — Configure OpenAI & Deepgram API keys, GPT model, speech model, transcription provider (cloud/local) and live transcription, local model size, hotkey, output mode, widget position/size, auto-start, context toggles, personal dictionary (with auto-learned suggestions), and silence timeout; all changes hot-reload immediately
 - **Auto-Start with Windows** — Optional registry-based startup entry; toggle in Settings to launch SpeakUp on Windows boot
 - **System Tray** — Runs in background with Show/Hide, Settings, User Guide, Usage & cost, Run setup again, and Quit; programmatic microphone icon
 - **First-Run Onboarding** — A skippable 3-step wizard on first launch: API key entry, a microphone test with a live level meter, and a 30-second tutorial; tracked by `onboarding_complete` and re-runnable from the tray. (CLI mode still prompts via stdin.)
@@ -35,15 +36,15 @@ Voice AI productivity tool that converts speech into structured, intelligent tex
 - **Structured Exceptions** — APIKeyError, RecordingError, TranscriptionError, RewriteError carry user-friendly messages surfaced in the UI
 - **Usage Analytics** — Tracks run count, words transcribed, words generated, estimated typing time saved, and approximate cost; stored locally in `usage_stats.json`
 - **Desktop Shortcut** — VBS launcher runs SpeakUp without a console window; `create_shortcut.vbs` creates a desktop shortcut
-- **Standalone Exe** — PyInstaller build produces a single `SpeakUp.exe` (~85 MB) for easy distribution; no Python installation needed
+- **Standalone Exe** — PyInstaller build produces a single `SpeakUp.exe` (~93 MB, bundles websockets for live transcription) for easy distribution; no Python installation needed
 - **Automated Tests** — pytest suite covering Config, AudioRecorder, Pipeline, and error hierarchy (19 tests)
 
 ## Tech Stack
 
 | Layer | Choice |
 |-------|--------|
-| Desktop UI | Python 3.12 + PyQt5 |
-| Speech-to-Text | OpenAI cloud (`gpt-4o-mini-transcribe` / `gpt-4o-transcribe` / `whisper-1`) or faster-whisper (local/offline) |
+| Desktop UI | Python 3.11+ + PyQt5 |
+| Speech-to-Text | OpenAI cloud (`gpt-4o-transcribe` default / `gpt-4o-mini-transcribe` / `whisper-1`), Deepgram streaming (optional, live captions), or faster-whisper (local/offline) |
 | AI Rewriting | OpenAI GPT-4o-mini (default) / GPT-4o |
 | Global Hotkeys | pynput (press/release detection, Windows key support) |
 | Audio Recording | sounddevice (16kHz mono, in-memory BytesIO) |
@@ -55,17 +56,17 @@ Voice AI productivity tool that converts speech into structured, intelligent tex
 
 ### Option A: Standalone Exe (easiest)
 
-1. Download `SpeakUp.exe` from the dist folder (or get it from a teammate)
-2. Double-click to run — enter your OpenAI API key when prompted on first launch
-3. That's it! Config files are created next to the exe automatically
+1. Download `SpeakUp.exe` (from the dist folder or a teammate)
+2. Double-click to run — a skippable first-run wizard walks you through entering your OpenAI API key, testing your microphone, and a quick tutorial
+3. Your key and settings are stored privately in `%APPDATA%\SpeakUp` — never next to the exe
 
 ### Option B: From Source
 
 #### 1. Clone and install
 
 ```bash
-git clone https://github.com/your-username/Speak-up.git
-cd Speak-up
+git clone https://github.com/vishwakarmanitin-21/SpeakUp.git
+cd SpeakUp
 python -m venv .venv
 .venv\Scripts\activate        # Windows
 pip install -e .
@@ -142,8 +143,10 @@ Each mode has a dedicated system prompt engineered in `src/rewrite/prompts.py`.
 ### Pipeline Flow
 
 ```
-Record (sounddevice) -> Transcribe (Whisper API) -> Rewrite (GPT API) -> Output (paste/clipboard/preview)
+Record (sounddevice) -> Transcribe (Whisper API batch, or live via OpenAI Realtime / Deepgram streaming) -> Rewrite (GPT API, streamed) -> Output (paste/clipboard/preview)
 ```
+
+Live transcription (when enabled) runs the WebSocket on its own thread/loop with a live caption overlay, and always falls back to batch transcription so a dictation is never lost.
 
 ### Threading Model
 
@@ -175,15 +178,17 @@ tests/
   test_error_handler.py  # Exception hierarchy tests
 src/
   config.py              # Configuration singleton (with reload())
-  main.py                # Entry point (CLI + GUI, API key prompt)
+  main.py                # Entry point (CLI + GUI, first-run onboarding)
   audio/
     recorder.py          # Push-to-talk audio capture
     silence_detector.py  # Auto-stop on silence
   hotkeys/
     listener.py          # Global hotkey (Ctrl+Win, with Windows key support)
   transcription/
-    whisper_client.py    # OpenAI Whisper API (cloud)
+    whisper_client.py    # OpenAI Whisper API (cloud, batch)
     local_whisper_client.py  # faster-whisper (local/offline)
+    realtime_client.py   # OpenAI Realtime API live transcription (per-pause captions)
+    deepgram_client.py   # Deepgram streaming live transcription (word-by-word captions)
     factory.py           # Returns cloud or local client based on config
   rewrite/
     modes.py             # 7 rewrite modes enum
@@ -200,7 +205,8 @@ src/
   services/
     pipeline.py          # Orchestrator: record -> transcribe -> rewrite -> output
     error_handler.py     # Error types + logging
-    usage_tracker.py     # Local usage analytics (usage_stats.json)
+    usage_tracker.py     # Local usage analytics + cost estimation (usage_stats.json)
+    vocab_learner.py     # Auto-learning dictionary suggestions (vocab_suggestions.json)
     autostart.py         # Windows startup registry management
   ui/
     app.py               # QApplication + system tray
@@ -211,6 +217,8 @@ src/
       mode_selector.py   # Rewrite mode dropdown
       status_indicator.py # Status display
       preview_window.py  # Result preview popup
+      caption_window.py  # Floating live-caption overlay (blinking caret)
+      onboarding_dialog.py # First-run setup wizard (key + mic test + tutorial)
       settings_dialog.py # Settings panel
 scripts/
   build.py               # PyInstaller build script
@@ -240,6 +248,9 @@ Settings can be changed via the gear icon on the overlay or by editing `config.j
 | `transcription_realtime` | `false` | **Experimental.** Transcribe *while you speak* (lowest latency, live captions). Uses Deepgram streaming if `DEEPGRAM_API_KEY` is set (word-by-word), else the OpenAI Realtime API (per-pause). Requires `pip install -e ".[realtime]"`; falls back to standard transcription on any failure |
 | `realtime_vad_silence_ms` | `250` | OpenAI live mode only: silence (ms) before a caption segment closes. Lower = more frequent captions, but can split words |
 | `whisper_local_model_size` | `base` | Local model: `tiny`, `base`, `small`, `medium`, `large` |
+| `include_clipboard` | `false` | Include clipboard contents as rewrite context |
+| `include_selection` | `false` | Include selected text as rewrite context |
+| `include_session_memory` | `true` | Include recent dictations (rolling history) as context |
 | `include_vscode_file` | `false` | Include active VS Code file content as context (Windows) |
 | `widget_position` | `bottom_center` | Widget position: `bottom_right`, `bottom_left`, or `bottom_center` |
 | `widget_scale` | `compact` | Widget size: `compact` (hover-expand), `normal`, or `large` (2x) |
@@ -249,6 +260,8 @@ Settings can be changed via the gear icon on the overlay or by editing `config.j
 
 ## Privacy & Security
 
-- No audio stored — BytesIO only, garbage collected after use
-- Encrypted API calls — HTTPS via OpenAI SDK
-- API keys stored in `.env` file (git-ignored)
+- No audio stored — held in memory only, never written to disk
+- Audio is sent to OpenAI for transcription (and to Deepgram only if you enable live word-by-word captions); nothing else leaves your machine
+- Encrypted API calls — HTTPS via the provider SDKs
+- API keys live in `.env` (git-ignored); in the packaged app that's `%APPDATA%\SpeakUp\.env` — never bundled into the exe
+- Auto-paste restores your previous clipboard by default, so dictation doesn't silently overwrite what you copied
