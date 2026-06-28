@@ -6,18 +6,16 @@ released, instead of being uploaded and transcribed afterwards.
 
 Requires the optional dependency:  pip install -e ".[realtime]"
 
-Why a dedicated thread + loop:
-  The WebSocket runs on its OWN asyncio event loop in a background thread,
-  isolated from qasync. qasync's event loop resolves DNS unreliably on Windows
-  (intermittent `getaddrinfo failed`), which made live mode fall back to batch.
-  A clean asyncio loop resolves DNS normally, so live mode actually connects.
-
-Resilience — realtime can NEVER lose a dictation:
-  * The microphone starts capturing immediately; every frame is kept in a local
-    buffer regardless of WebSocket state.
-  * Connect is attempted (with one retry) but never fatal.
-  * On ANY realtime failure (connect, protocol, timeout, empty result) the
-    captured audio is transcribed via the standard cloud path (WhisperClient).
+Key design points:
+  * The mic starts SYNCHRONOUSLY the instant recording begins, and every frame
+    is appended to a shared buffer from frame zero — so the start of speech is
+    never clipped, even while the WebSocket is still connecting.
+  * The WebSocket runs on its OWN asyncio loop in a background thread, isolated
+    from qasync (whose DNS resolution is unreliable on Windows).
+  * The session streams the WHOLE buffer (index 0 onward), so audio captured
+    before/during connect is still sent.
+  * On ANY realtime failure the captured audio is transcribed via the standard
+    cloud path (WhisperClient) — a dictation is never lost.
 """
 from __future__ import annotations
 
@@ -67,34 +65,27 @@ class RealtimeTranscriber:
         model = config.whisper_model
         self._model = model if "transcribe" in model else "gpt-4o-transcribe"
         self._mic: sd.InputStream | None = None
-        self._pcm_buffer: list[bytes] = []          # local copy for batch fallback
+        self._pcm_buffer: list[bytes] = []   # ALL captured frames (shared, append-only)
         self._active = False
-        # Cross-thread coordination with the realtime worker loop.
-        self._worker_loop: asyncio.AbstractEventLoop | None = None
-        self._aq: asyncio.Queue | None = None
+        self._stop = False
         self._thread: threading.Thread | None = None
-        self._result: Future = Future()             # worker sets: transcript str or None
+        self._result: Future = Future()      # worker sets: transcript str or None
 
-    async def start(self) -> None:
-        """Start mic capture and the background realtime session (non-blocking)."""
+    def start(self) -> None:
+        """Start capturing IMMEDIATELY (sync) and spin up the realtime session.
+
+        Synchronous so the mic begins the instant the hotkey is pressed — no
+        opening words are lost while the WebSocket connects.
+        """
         self._pcm_buffer = []
         self._result = Future()
-        self._worker_loop = None
-        self._aq = None
+        self._stop = False
 
-        # Mic capture runs on a PortAudio thread. Always buffer; also hand frames
-        # to the worker loop once it exists.
         def _cb(indata, frames, time_info, status) -> None:
-            if not self._active:
-                return
-            pcm16 = (np.clip(indata[:, 0], -1.0, 1.0) * 32767).astype("<i2").tobytes()
-            self._pcm_buffer.append(pcm16)
-            loop, aq = self._worker_loop, self._aq
-            if loop is not None and aq is not None:
-                try:
-                    loop.call_soon_threadsafe(aq.put_nowait, pcm16)
-                except RuntimeError:
-                    pass  # worker loop already closed
+            if self._active:
+                self._pcm_buffer.append(
+                    (np.clip(indata[:, 0], -1.0, 1.0) * 32767).astype("<i2").tobytes()
+                )
 
         self._active = True
         self._mic = sd.InputStream(
@@ -102,7 +93,6 @@ class RealtimeTranscriber:
         )
         self._mic.start()
 
-        # Run the realtime session on a dedicated thread with a clean asyncio loop.
         self._thread = threading.Thread(target=self._run_session, daemon=True)
         self._thread.start()
 
@@ -116,8 +106,6 @@ class RealtimeTranscriber:
                 self._result.set_result(None)
 
     async def _session(self) -> None:
-        self._worker_loop = asyncio.get_running_loop()
-        self._aq = asyncio.Queue()
         ws = None
         try:
             for attempt in range(2):
@@ -146,17 +134,13 @@ class RealtimeTranscriber:
             }))
             logger.info("Realtime transcription started (model=%s)", self._model)
 
-            # Stream audio until the main thread signals stop (None sentinel).
+            # Stream every captured frame from index 0 (nothing clipped), then
+            # keep up with new frames until stop is signalled.
             sent = 0
-            while True:
-                data = await self._aq.get()
-                if data is None:
-                    break
-                sent += 1
-                await ws.send(json.dumps({
-                    "type": _EVT_AUDIO_APPEND,
-                    "audio": base64.b64encode(data).decode("ascii"),
-                }))
+            while not self._stop:
+                sent = await self._flush_from(ws, sent)
+                await asyncio.sleep(0.02)
+            sent = await self._flush_from(ws, sent)  # final flush after stop
             logger.info("Realtime: sent %d audio chunks", sent)
 
             await ws.send(json.dumps({"type": _EVT_AUDIO_COMMIT}))
@@ -172,6 +156,16 @@ class RealtimeTranscriber:
                     await ws.close()
                 except Exception:
                     pass
+
+    async def _flush_from(self, ws, sent: int) -> int:
+        buf = self._pcm_buffer
+        while sent < len(buf):
+            await ws.send(json.dumps({
+                "type": _EVT_AUDIO_APPEND,
+                "audio": base64.b64encode(buf[sent]).decode("ascii"),
+            }))
+            sent += 1
+        return sent
 
     @staticmethod
     async def _read_until_complete(ws) -> str:
@@ -193,6 +187,7 @@ class RealtimeTranscriber:
     async def stop_and_transcribe(self, timeout: float = 25.0) -> str:
         """Stop the mic, finish the session, and return the transcript or fallback."""
         self._active = False
+        self._stop = True
         if self._mic is not None:
             try:
                 self._mic.stop()
@@ -201,10 +196,6 @@ class RealtimeTranscriber:
                 pass
             self._mic = None
 
-        # Tell the worker loop to stop streaming and commit.
-        self._signal_stop()
-
-        # Await the worker's result from the qasync loop without blocking it.
         transcript = None
         try:
             transcript = await asyncio.wait_for(asyncio.wrap_future(self._result), timeout)
@@ -214,14 +205,6 @@ class RealtimeTranscriber:
         if transcript:
             return transcript
         return await self._fallback_batch()
-
-    def _signal_stop(self) -> None:
-        loop, aq = self._worker_loop, self._aq
-        if loop is not None and aq is not None:
-            try:
-                loop.call_soon_threadsafe(aq.put_nowait, None)
-            except RuntimeError:
-                pass
 
     def _wav_from_buffer(self) -> io.BytesIO | None:
         if not self._pcm_buffer:
@@ -245,8 +228,10 @@ class RealtimeTranscriber:
         text = await WhisperClient().transcribe(wav)
         return text.strip()
 
-    async def close(self) -> None:
+    def close(self) -> None:
+        """Stop capturing and signal the worker to wind down (sync)."""
         self._active = False
+        self._stop = True
         if self._mic is not None:
             try:
                 self._mic.stop()
@@ -254,4 +239,3 @@ class RealtimeTranscriber:
             except Exception:
                 pass
             self._mic = None
-        self._signal_stop()

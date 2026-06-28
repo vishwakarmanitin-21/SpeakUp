@@ -47,7 +47,6 @@ class Pipeline:
         self._active_app: tuple[str, str] = ("", "general")
         # Experimental realtime (transcribe-while-speaking) state.
         self._realtime = None
-        self._realtime_task = None
         self._use_realtime = False
 
         # Wire silence detection into audio callback
@@ -95,16 +94,15 @@ class Pipeline:
         self._set_state(PipelineState.RECORDING)
 
         # Experimental: start streaming to the Realtime API (transcribe while
-        # speaking). On any failure we fall back to normal batch recording.
+        # speaking). The mic starts synchronously here so no opening words are
+        # lost. On any failure we fall back to normal batch recording.
         self._use_realtime = False
         self._realtime = None
-        self._realtime_task = None
-        import asyncio
         if self._config.transcription_realtime:
             try:
                 from src.transcription.realtime_client import RealtimeTranscriber
                 self._realtime = RealtimeTranscriber()
-                self._realtime_task = asyncio.ensure_future(self._realtime.start())
+                self._realtime.start()  # synchronous — capture begins immediately
                 self._use_realtime = True
             except Exception as e:
                 logger.warning("Realtime unavailable, using batch transcription: %s", e)
@@ -123,9 +121,8 @@ class Pipeline:
         if self._recorder.is_recording:
             self._recorder.stop()
         if self._realtime is not None:
-            import asyncio
             try:
-                asyncio.ensure_future(self._realtime.close())
+                self._realtime.close()
             except Exception:
                 pass
             self._realtime = None
@@ -168,8 +165,6 @@ class Pipeline:
                 # a dictation. A genuine error (e.g. network fully down) propagates
                 # to the outer handler below.
                 try:
-                    if self._realtime_task is not None:
-                        await self._realtime_task
                     raw_text = await self._realtime.stop_and_transcribe()
                 finally:
                     self._use_realtime = False
