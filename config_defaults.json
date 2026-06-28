@@ -21,6 +21,7 @@
     "include_vscode_file": false,
     "auto_start": false,
     "track_usage": true,
+    "onboarding_complete": false,
     "widget_position": "bottom_center",
     "widget_scale": "compact"
 }
