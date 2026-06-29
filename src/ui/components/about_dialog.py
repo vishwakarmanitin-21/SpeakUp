@@ -7,7 +7,14 @@ from __future__ import annotations
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QDialog, QLabel, QPushButton, QVBoxLayout
 
-from src.version import APP_NAME, AUTHOR, GITHUB_URL, TAGLINE, __version__
+from src.version import (
+    APP_NAME,
+    AUTHOR,
+    GITHUB_URL,
+    LINKEDIN_URL,
+    TAGLINE,
+    __version__,
+)
 
 _STYLE = """
     QDialog { background-color: #262626; }
@@ -48,7 +55,10 @@ class AboutDialog(QDialog):
         created.setTextFormat(Qt.RichText)
         lay.addWidget(created)
 
-        link = QLabel(f'<a href="{GITHUB_URL}">{GITHUB_URL}</a>')
+        link = QLabel(
+            f'<a href="{GITHUB_URL}">GitHub</a>'
+            f' &nbsp;·&nbsp; <a href="{LINKEDIN_URL}">LinkedIn</a>'
+        )
         link.setTextFormat(Qt.RichText)
         link.setOpenExternalLinks(True)
         link.setWordWrap(True)

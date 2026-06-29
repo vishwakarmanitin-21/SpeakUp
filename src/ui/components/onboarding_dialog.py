@@ -168,8 +168,11 @@ class OnboardingDialog(QDialog):
         steps.setWordWrap(True)
         lay.addWidget(steps)
         lay.addStretch()
-        from src.version import AUTHOR, GITHUB_URL
-        credit = QLabel(f'Built by {AUTHOR} · <a href="{GITHUB_URL}">{GITHUB_URL}</a>')
+        from src.version import AUTHOR, GITHUB_URL, LINKEDIN_URL
+        credit = QLabel(
+            f'Built by {AUTHOR} · <a href="{GITHUB_URL}">GitHub</a> · '
+            f'<a href="{LINKEDIN_URL}">LinkedIn</a>'
+        )
         credit.setObjectName("step")
         credit.setTextFormat(Qt.RichText)
         credit.setOpenExternalLinks(True)
