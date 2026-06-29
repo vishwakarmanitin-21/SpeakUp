@@ -1,13 +1,6 @@
-# CLAUDE.md — Speak-up
+# CLAUDE.md — SpeakUp
 
 Voice-to-structured-text desktop overlay app.
-
-## OpenClaw Project Memory
-
-For full project history, decisions, and current state, read `C:/Users/Nitin/.openclaw/workspace/memory/projects/speak-up.md` at the start of non-trivial sessions. That file is the canonical durable record maintained by OpenClaw agents. Local Claude Code memory (auto-managed) captures codebase patterns and conventions — complementary, not competing.
-
-### Reverse Bridge: Direct Session → OpenClaw Memory
-When this session makes significant decisions (architecture changes, config fixes, workflow changes), write a handoff note to `C:/Users/Nitin/.openclaw/workspace/memory/handoff.md` so OpenClaw's midnight tracker can incorporate it. Format: date, decisions, config changes, memory updates, Lobster action needed.
 
 ## Autonomous Mode
 Assume permission for file creation, modification, refactoring, and dependency installation.
