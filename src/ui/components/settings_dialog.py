@@ -234,6 +234,14 @@ class SettingsDialog(QDialog):
 
         layout.addStretch()
 
+        # Authorship / version footer
+        from src.version import AUTHOR, __version__
+        footer = QLabel(f"SpeakUp v{__version__}  ·  Created by {AUTHOR}")
+        footer.setObjectName("footer")
+        footer.setAlignment(Qt.AlignCenter)
+        footer.setStyleSheet("color:#8a94a0; font-size:11px; margin-top:6px;")
+        layout.addWidget(footer)
+
         # Put all the groups above inside a scroll area.
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)

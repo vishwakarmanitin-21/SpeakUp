@@ -265,3 +265,16 @@ Settings can be changed via the gear icon on the overlay or by editing `config.j
 - Encrypted API calls — HTTPS via the provider SDKs
 - API keys live in `.env` (git-ignored); in the packaged app that's `%APPDATA%\SpeakUp\.env` — never bundled into the exe
 - Auto-paste restores your previous clipboard by default, so dictation doesn't silently overwrite what you copied
+
+## License
+
+MIT — free to use, modify, and distribute. See [LICENSE](LICENSE).
+
+## Author
+
+Created by **Nitin Vishwakarma** — built by orchestrating AI coding agents, as a
+hands-on exercise in leading AI to ship real, useful software.
+
+- GitHub: https://github.com/vishwakarmanitin-21/SpeakUp
+
+If SpeakUp saves you some typing, that's the point. Issues and ideas welcome.

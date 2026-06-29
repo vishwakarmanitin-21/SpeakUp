@@ -46,6 +46,8 @@ a = Analysis(
         'src.services.vocab_learner',
         'src.ui.components.caption_window',
         'src.ui.components.onboarding_dialog',
+        'src.ui.components.about_dialog',
+        'src.version',
         # scipy.io.wavfile is used for the realtime/deepgram WAV fallback
         'scipy.io.wavfile',
     ],

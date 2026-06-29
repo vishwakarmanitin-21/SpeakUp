@@ -120,6 +120,10 @@ def _create_tray_icon(
     setup_action.triggered.connect(_run_onboarding_again)
     menu.addAction(setup_action)
 
+    about_action = QAction("About SpeakUp", menu)
+    about_action.triggered.connect(_show_about)
+    menu.addAction(about_action)
+
     menu.addSeparator()
 
     quit_action = QAction("Quit", menu)
@@ -145,6 +149,15 @@ def _run_first_run_if_needed() -> bool:
         except Exception as e:
             logger.warning("Onboarding failed: %s", e)
     return OnboardingDialog.has_api_key()
+
+
+def _show_about() -> None:
+    """Open the About dialog (version + authorship + links)."""
+    try:
+        from src.ui.components.about_dialog import AboutDialog
+        AboutDialog().exec_()
+    except Exception as e:
+        logger.warning("Could not open About: %s", e)
 
 
 def _run_onboarding_again() -> None:
