@@ -111,15 +111,6 @@ class Pipeline:
 
         self._set_state(PipelineState.RECORDING)
 
-        # Warm the rewrite connection now (best-effort) so the TLS handshake is
-        # already done by the time you release — keeps even the first/after-idle
-        # dictation snappy. Never blocks or affects recording.
-        try:
-            import asyncio
-            asyncio.ensure_future(self._rewriter.warm_up())
-        except Exception:
-            pass
-
         # Experimental: start streaming to the Realtime API (transcribe while
         # speaking). The mic starts synchronously here so no opening words are
         # lost. On any failure we fall back to normal batch recording.
