@@ -143,12 +143,19 @@ class SettingsDialog(QDialog):
 
         self._transcription_provider_combo = QComboBox()
         self._transcription_provider_combo.addItem("Cloud (OpenAI Whisper API)", "cloud")
-        self._transcription_provider_combo.addItem("Local (faster-whisper, offline)", "local")
+        # The local engine (faster-whisper) isn't bundled in the packaged exe, so
+        # only offer it when running from source — no dead-end option for exe users.
+        self._is_frozen = getattr(sys, "frozen", False)
+        if not self._is_frozen:
+            self._transcription_provider_combo.addItem(
+                "Local (faster-whisper, offline)", "local"
+            )
         transcription_layout.addRow("Provider:", self._transcription_provider_combo)
 
         self._local_model_combo = QComboBox()
         self._local_model_combo.addItems(["tiny", "base", "small", "medium", "large"])
-        transcription_layout.addRow("Local Model Size:", self._local_model_combo)
+        if not self._is_frozen:
+            transcription_layout.addRow("Local Model Size:", self._local_model_combo)
 
         self._realtime_check = QCheckBox(
             "Live transcription — transcribe while speaking (experimental)"
