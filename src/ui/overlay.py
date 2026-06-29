@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 
 from PyQt5.QtCore import QPoint, QPropertyAnimation, QSize, Qt, QTimer, pyqtSignal, pyqtSlot
@@ -143,12 +144,14 @@ class OverlayWidget(QWidget):
         self._mic_btn.setFixedSize(QSize(mic_sz, mic_sz))
         mic_font_px = max(10, int(18 * font_f))
         mic_radius = mic_sz // 2
+        # Use regex on the CURRENT value so repeated scale changes re-patch
+        # correctly (a literal replace only matches the unpatched default once).
         for state_key in ("idle", "recording", "processing"):
             from src.ui.styles import MIC_BUTTON_STYLES
-            # patch border-radius + font-size in the style strings
-            original = MIC_BUTTON_STYLES[state_key]
-            patched = original.replace("border-radius: 24px", f"border-radius: {mic_radius}px")
-            patched = patched.replace("font-size: 18px", f"font-size: {mic_font_px}px")
+            patched = re.sub(r"border-radius: \d+px",
+                             f"border-radius: {mic_radius}px", MIC_BUTTON_STYLES[state_key])
+            patched = re.sub(r"font-size: \d+px",
+                             f"font-size: {mic_font_px}px", patched)
             MIC_BUTTON_STYLES[state_key] = patched
         self._mic_btn.set_state("idle")  # re-apply patched style
 
@@ -156,14 +159,15 @@ class OverlayWidget(QWidget):
         self._settings_btn.setFixedSize(gear_sz, gear_sz)
         gear_font_px = max(10, int(16 * font_f))
         self._settings_btn.setStyleSheet(
-            SETTINGS_BUTTON_STYLE.replace("font-size: 16px", f"font-size: {gear_font_px}px")
+            re.sub(r"font-size: \d+px", f"font-size: {gear_font_px}px", SETTINGS_BUTTON_STYLE)
         )
 
         # Status / mode selector font scaling
         status_px = max(8, int(11 * font_f))
         from src.ui import styles as _st
         for k, v in _st.STATUS_STYLES.items():
-            _st.STATUS_STYLES[k] = v.replace("font-size: 11px", f"font-size: {status_px}px")
+            _st.STATUS_STYLES[k] = re.sub(
+                r"font-size: \d+px", f"font-size: {status_px}px", v)
         self._status.set_state("idle")
 
         # Compact mode: hide detail widgets initially
@@ -188,6 +192,25 @@ class OverlayWidget(QWidget):
             x = screen.width() - self.width() - margin
 
         self.move(x, y)
+
+    def reload_appearance(self) -> None:
+        """Re-apply size/position from config without a restart (after Settings save)."""
+        # Reset compact/hover state and any fixed-size constraints from collapsing.
+        self._hover_poll_timer.stop()
+        self._compact_expanded = False
+        self._is_compact = self._config.widget_scale == "compact"
+        self.setMinimumSize(0, 0)
+        self.setMaximumSize(16777215, 16777215)
+
+        self._apply_scale()
+        # Switching away from compact must re-show the detail widgets that
+        # compact mode hides.
+        if not self._is_compact:
+            self._info_widget.setVisible(True)
+            self._settings_btn.setVisible(True)
+
+        self.adjustSize()
+        self._position_widget()
 
     # --- Compact mode hover expand/collapse ---
 
@@ -396,4 +419,5 @@ class OverlayWidget(QWidget):
         from src.ui.components.settings_dialog import SettingsDialog
 
         dialog = SettingsDialog(self, hotkey_listener=self._hotkey_listener)
-        dialog.exec_()
+        if dialog.exec_():  # Save (Accepted) — apply appearance changes live
+            self.reload_appearance()
