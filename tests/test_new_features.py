@@ -59,9 +59,20 @@ def _fresh_learner(tmp_path, monkeypatch):
 
 def test_learner_suggests_recurring_proper_noun(tmp_path, monkeypatch):
     vl = _fresh_learner(tmp_path, monkeypatch)
+    # Must appear capitalised MID-sentence (not just at a sentence start).
     vl.observe("I spoke to Zephyrion today about the plan.")
-    vl.observe("Zephyrion agreed with the plan.")
+    vl.observe("We saw Zephyrion again yesterday.")
     assert "Zephyrion" in vl.pending_suggestions()
+
+
+def test_learner_ignores_sentence_start_words(tmp_path, monkeypatch):
+    vl = _fresh_learner(tmp_path, monkeypatch)
+    # "Considering" / "Hope" only ever start sentences -> never suggested.
+    vl.observe("Considering the plan. Hope it works.")
+    vl.observe("Considering that. Hope so.")
+    pending = vl.pending_suggestions()
+    assert "Considering" not in pending
+    assert "Hope" not in pending
 
 
 def test_learner_ignores_common_and_single_words(tmp_path, monkeypatch):
@@ -76,8 +87,8 @@ def test_learner_ignores_common_and_single_words(tmp_path, monkeypatch):
 
 def test_learner_ignore_removes_suggestion(tmp_path, monkeypatch):
     vl = _fresh_learner(tmp_path, monkeypatch)
-    vl.observe("Zephyrion and Zephyrion.")  # dedup per run -> count 1
-    vl.observe("Zephyrion again.")          # count 2 -> eligible
+    vl.observe("I called Zephyrion earlier.")   # mid-sentence -> 1
+    vl.observe("Please meet Zephyrion now.")    # mid-sentence -> 2
     assert "Zephyrion" in vl.pending_suggestions()
     vl.ignore("Zephyrion")
     assert "Zephyrion" not in vl.pending_suggestions()
