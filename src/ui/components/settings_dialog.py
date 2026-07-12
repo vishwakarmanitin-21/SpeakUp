@@ -75,7 +75,16 @@ class SettingsDialog(QDialog):
         api_layout.addRow("OpenAI API Key:", key_row)
 
         self._model_combo = QComboBox()
-        self._model_combo.addItems(["gpt-4o", "gpt-4o-mini"])
+        self._model_combo.setEditable(True)  # type any current OpenAI model id
+        self._model_combo.addItems(
+            ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1"]
+        )
+        self._model_combo.setToolTip(
+            "The model that cleans up & formats your speech.\n"
+            "gpt-4o-mini: fast + cheap, great default.\n"
+            "gpt-4o / larger: higher quality on complex formatting, but SLOWER.\n"
+            "You can type any current OpenAI model id and hit Test."
+        )
         api_layout.addRow("GPT Model:", self._model_combo)
 
         self._whisper_model_combo = QComboBox()
@@ -422,10 +431,12 @@ class SettingsDialog(QDialog):
         self._api_key_input.setText(os.getenv("OPENAI_API_KEY", ""))
         self._deepgram_key_input.setText(os.getenv("DEEPGRAM_API_KEY", ""))
 
-        # Model
+        # Model (editable — accept a value that isn't in the preset list)
         idx = self._model_combo.findText(self._config.gpt_model)
         if idx >= 0:
             self._model_combo.setCurrentIndex(idx)
+        else:
+            self._model_combo.setCurrentText(self._config.gpt_model)
 
         # Whisper model
         idx = self._whisper_model_combo.findText(self._config.whisper_model)
