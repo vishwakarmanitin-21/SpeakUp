@@ -108,6 +108,15 @@ def _create_tray_icon(
     settings_action.triggered.connect(overlay.open_settings)
     menu.addAction(settings_action)
 
+    # Re-run the last dictation through a different mode (no re-speaking).
+    from src.rewrite.modes import RewriteMode
+    rerun_menu = QMenu("Re-run last dictation", menu)
+    for _mode in RewriteMode:
+        _act = QAction(_mode.display_name, rerun_menu)
+        _act.triggered.connect(lambda checked=False, m=_mode: overlay.rerun_last(m))
+        rerun_menu.addAction(_act)
+    menu.addMenu(rerun_menu)
+
     guide_action = QAction("User Guide", menu)
     guide_action.triggered.connect(_open_user_guide)
     menu.addAction(guide_action)

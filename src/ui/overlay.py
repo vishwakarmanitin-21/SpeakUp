@@ -375,6 +375,26 @@ class OverlayWidget(QWidget):
         finally:
             self._caption.hide_caption()
 
+    def rerun_last(self, mode) -> None:
+        """Re-run the last dictation through `mode` (triggered from the tray)."""
+        asyncio.ensure_future(self._run_rerun(mode))
+
+    async def _run_rerun(self, mode) -> None:
+        from src.services.error_handler import SpeakUpError
+
+        output_mode = self._config.output_mode
+        try:
+            raw_text, rewritten = await self._pipeline.rerun_last(mode)
+            if not raw_text:
+                self._status.set_state("idle", "Nothing to re-run yet — dictate something first.")
+                return
+            if output_mode == OutputMode.PREVIEW:
+                self._show_preview(rewritten)
+        except Exception as e:
+            msg = e.user_message if isinstance(e, SpeakUpError) else str(e)
+            self._status.set_state("error", msg)
+            logger.error("Re-run failed: %s", e, exc_info=True)
+
     def _show_preview(self, text: str) -> None:
         """Show the preview window with the rewritten text."""
         if self._preview_window is None:

@@ -50,6 +50,7 @@ class Pipeline:
         self._use_realtime = False
         self._on_caption = None  # callable(str) for live captions (set by the UI)
         self._on_notice = None   # callable(str) for quiet hints (set by the UI)
+        self._last_raw_text = ""  # last transcript, for "re-run in another mode"
         self._vocab_learner = None  # lazy VocabLearner (auto-learning dictionary)
 
         # Wire silence detection into audio callback
@@ -214,6 +215,8 @@ class Pipeline:
                 whisper = get_transcription_client()
                 raw_text = await whisper.transcribe(wav_bytes)
             logger.info("Transcription: %d words (%d chars)", len(raw_text.split()), len(raw_text))
+            if raw_text.strip():
+                self._last_raw_text = raw_text  # cache for "re-run in another mode"
             if self._cancelled:
                 self._set_state(PipelineState.IDLE)
                 return "", ""
@@ -286,5 +289,59 @@ class Pipeline:
 
         except Exception as exc:
             logger.error("Pipeline error: %s", exc, exc_info=True)
+            self._set_state(PipelineState.ERROR)
+            raise
+
+    async def rerun_last(
+        self, mode: RewriteMode, output_mode: str | None = None
+    ) -> tuple[str, str]:
+        """Re-rewrite the LAST transcript in a different mode (no re-speaking).
+
+        Uses the cached raw transcript, rewrites it in `mode`, and delivers it the
+        usual way. Returns ("", "") if there's nothing to re-run yet.
+        """
+        raw_text = self._last_raw_text
+        if not raw_text:
+            return "", ""
+
+        self._cancelled = False
+        config = Config()
+        # Deliver to wherever the cursor is now; re-detect the app for Smart mode.
+        try:
+            from src.context.active_window import detect_active_app
+            app_hint = detect_active_app()
+        except Exception:
+            app_hint = self._active_app
+
+        try:
+            self._set_state(PipelineState.REWRITING)
+            effective_output = output_mode or config.output_mode
+            stream_output = (
+                config.stream_output and effective_output == OutputMode.AUTO_PASTE
+            )
+            if stream_output:
+                chunks: list[str] = []
+                self._inserter.begin_stream()
+                try:
+                    async for delta in self._rewriter.rewrite_stream(
+                        raw_text, mode, None, app_hint=app_hint
+                    ):
+                        chunks.append(delta)
+                        self._inserter.feed_stream(delta)
+                finally:
+                    self._inserter.end_stream()
+                rewritten = "".join(chunks)
+            else:
+                rewritten = await self._rewriter.rewrite(
+                    raw_text, mode, None, app_hint=app_hint
+                )
+                self._inserter.deliver(rewritten, output_mode)
+
+            self._session_memory.add(raw_text, rewritten, mode.value)
+            logger.info("Re-run: mode=%s, %d words", mode.value, len(rewritten.split()))
+            self._set_state(PipelineState.DONE)
+            return raw_text, rewritten
+        except Exception as exc:
+            logger.error("Re-run error: %s", exc, exc_info=True)
             self._set_state(PipelineState.ERROR)
             raise
