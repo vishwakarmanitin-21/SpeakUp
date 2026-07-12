@@ -111,6 +111,13 @@ class Pipeline:
 
         self._set_state(PipelineState.RECORDING)
 
+        # Warm the rewrite connection now (runs on the rewrite worker loop, so it
+        # is safe) — keeps the TLS handshake off the critical path after release.
+        try:
+            self._rewriter.warm_up()
+        except Exception:
+            pass
+
         # Experimental: start streaming to the Realtime API (transcribe while
         # speaking). The mic starts synchronously here so no opening words are
         # lost. On any failure we fall back to normal batch recording.
