@@ -211,6 +211,23 @@ def run_app() -> None:
     app.setWindowIcon(_app_icon())
     app.setQuitOnLastWindowClosed(False)
 
+    # Single-instance guard: if SpeakUp is already running, tell it to show its
+    # window and exit — prevents duplicate overlays and double-pasting.
+    from PyQt5.QtNetwork import QLocalServer, QLocalSocket
+    _single_key = "SpeakUp-single-instance"
+    _probe = QLocalSocket()
+    _probe.connectToServer(_single_key)
+    if _probe.waitForConnected(300):
+        _probe.write(b"SHOW")
+        _probe.flush()
+        _probe.waitForBytesWritten(300)
+        _probe.disconnectFromServer()
+        logger.info("SpeakUp already running — focusing the existing window.")
+        return
+    QLocalServer.removeServer(_single_key)  # clear any stale socket from a crash
+    _single_server = QLocalServer()
+    _single_server.listen(_single_key)
+
     # Set up asyncio event loop integrated with Qt
     loop = QEventLoop(app)
     asyncio.set_event_loop(loop)
@@ -226,6 +243,21 @@ def run_app() -> None:
     pipeline = Pipeline()
     overlay = OverlayWidget(pipeline=pipeline)
     overlay.show()
+
+    # A second launch attempt pings the local server — re-show this instance.
+    def _on_second_launch() -> None:
+        conn = _single_server.nextPendingConnection()
+        if conn is not None:
+            conn.readAll()
+            conn.disconnectFromServer()
+        overlay.show()
+        overlay.raise_()
+        try:
+            overlay._keep_on_top()
+        except Exception:
+            pass
+
+    _single_server.newConnection.connect(_on_second_launch)
 
     # System tray
     _tray = _create_tray_icon(app, overlay)  # noqa: F841 -- prevent GC

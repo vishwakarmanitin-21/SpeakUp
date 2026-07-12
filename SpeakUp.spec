@@ -29,6 +29,7 @@ a = Analysis(
         'qasync',
         # PyQt5 plugins
         'PyQt5.sip',
+        'PyQt5.QtNetwork',  # single-instance guard (QLocalServer/QLocalSocket)
         # sounddevice backend
         'sounddevice',
         '_sounddevice_data',
