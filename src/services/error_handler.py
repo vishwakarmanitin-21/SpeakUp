@@ -37,7 +37,13 @@ class RewriteError(SpeakUpError):
 
 def setup_logging() -> None:
     """Configure application logging."""
-    log_dir = Path(__file__).resolve().parent.parent.parent
+    # Use the per-user data dir so the log PERSISTS for the packaged exe — a
+    # __file__-relative path lands in the PyInstaller temp dir, which is wiped.
+    try:
+        from src.config import Config
+        log_dir = Config().data_dir
+    except Exception:
+        log_dir = Path(__file__).resolve().parent.parent.parent
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",

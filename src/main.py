@@ -38,9 +38,19 @@ def _ensure_api_key() -> bool:
 
     os.environ["OPENAI_API_KEY"] = key
     env_path = Config().env_path
-    # Append or create .env with the key
-    with open(env_path, "a", encoding="utf-8") as f:
-        f.write(f"\nOPENAI_API_KEY={key}\n")
+    # Upsert the key (replace an existing line, else append) so repeated setup
+    # runs don't leave duplicate OPENAI_API_KEY lines.
+    lines, found = [], False
+    if env_path.exists():
+        for line in env_path.read_text(encoding="utf-8").splitlines(keepends=True):
+            if line.startswith("OPENAI_API_KEY="):
+                lines.append(f"OPENAI_API_KEY={key}\n")
+                found = True
+            else:
+                lines.append(line)
+    if not found:
+        lines.append(f"OPENAI_API_KEY={key}\n")
+    env_path.write_text("".join(lines), encoding="utf-8")
     print(f"[Setup] API key saved to {env_path}\n")
     return True
 
@@ -60,6 +70,11 @@ def main() -> None:
     global _current_mode
 
     setup_logging()
+    try:
+        from src.services.dns_resilience import install as install_dns_resilience
+        install_dns_resilience()
+    except Exception:
+        pass
 
     try:
         config = Config()
