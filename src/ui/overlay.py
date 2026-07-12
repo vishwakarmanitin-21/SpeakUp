@@ -3,11 +3,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import sys
 import time
 
 from PyQt5.QtCore import QPoint, QPropertyAnimation, QSize, Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import (
+    QApplication,
     QDesktopWidget,
     QGraphicsOpacityEffect,
     QHBoxLayout,
@@ -73,6 +75,14 @@ class OverlayWidget(QWidget):
         self._hover_poll_timer = QTimer()
         self._hover_poll_timer.setInterval(300)
         self._hover_poll_timer.timeout.connect(self._check_hover)
+
+        # Windows demotes always-on-top windows over time (fullscreen apps, UAC,
+        # focus changes) so the overlay gets buried and looks "disappeared".
+        # Re-assert topmost periodically WITHOUT stealing focus.
+        self._topmost_timer = QTimer()
+        self._topmost_timer.setInterval(2000)
+        self._topmost_timer.timeout.connect(self._keep_on_top)
+        self._topmost_timer.start()
 
         self._setup_ui()
         self._connect_signals()
@@ -412,6 +422,30 @@ class OverlayWidget(QWidget):
             self.hide()
         else:
             self.show()
+            self.raise_()
+            self._keep_on_top()
+
+    def _keep_on_top(self) -> None:
+        """Re-assert always-on-top without stealing focus (Windows demotes it)."""
+        if not self.isVisible():
+            return
+        # Don't jump above an open dialog (Settings/onboarding are modal).
+        if QApplication.activeModalWidget() is not None:
+            return
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                HWND_TOPMOST = -1
+                SWP_NOSIZE = 0x0001
+                SWP_NOMOVE = 0x0002
+                SWP_NOACTIVATE = 0x0010
+                ctypes.windll.user32.SetWindowPos(
+                    int(self.winId()), HWND_TOPMOST, 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                )
+            except Exception:
+                pass
+        else:
             self.raise_()
 
     def open_settings(self) -> None:
