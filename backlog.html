@@ -147,7 +147,7 @@ const ITEMS = [
   {id:'p3', t:'"Nitin Mode" — style learning', c:'Intelligence', p:'P1', s:'Parked', n:'Learn the user\'s writing voice from real samples so output sounds personal. Parked 2026-06-28.'},
 
   // --- Pending: P2 ---
-  {id:'p4', t:'Re-run last dictation in another mode', c:'UX', p:'P2', s:'Backlog', n:'Re-rewrite the last transcript without re-speaking.'},
+  {id:'p4', t:'Re-run last dictation in another mode', c:'UX', p:'P2', s:'Done', n:'Tray → "Re-run last dictation" lists every mode; re-rewrites the cached last transcript in the chosen mode and delivers via the configured output — no re-speaking. Re-detects the active app for Smart mode.'},
   {id:'p5', t:'Dictation history (copy / re-run)', c:'UX', p:'P2', s:'Backlog', n:'Small window of recent transcripts and outputs.'},
   {id:'p6', t:'Auto-learning dictionary', c:'Intelligence', p:'P2', s:'Done', n:'Implemented: VocabLearner watches dictations for recurring proper-noun-like words not already in your dictionary and surfaces them as Add/Ignore suggestions in Settings → Personal Dictionary (threshold 2; common words filtered; stored in vocab_suggestions.json). Awaiting on-device check.'},
   {id:'p7', t:'In-app feedback when falling back to batch', c:'UX', p:'P2', s:'Done', n:'Implemented: when live transcription drops to batch (fell back mid-run, or could not start), a quiet tray balloon "Live transcription unavailable — used standard mode." appears via a pipeline notice callback. Never blocks dictation.'},
