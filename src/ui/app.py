@@ -83,7 +83,7 @@ def _open_user_guide() -> None:
             webbrowser.open(guide.as_uri())
         else:
             webbrowser.open(
-                "https://github.com/vishwakarmanitin-21/Speak-up/blob/main/USER_GUIDE.md"
+                "https://github.com/vishwakarmanitin-21/SpeakUp/blob/main/USER_GUIDE.md"
             )
     except Exception as e:
         logger.warning("Could not open user guide: %s", e)
@@ -198,6 +198,14 @@ def run_app() -> None:
     setup_logging()
     logger.info("SpeakUp starting...")
 
+    # Resolve hosts via public DNS if the system resolver fails (some routers
+    # refuse api.deepgram.com) so live transcription keeps working.
+    try:
+        from src.services.dns_resilience import install as install_dns_resilience
+        install_dns_resilience()
+    except Exception as e:
+        logger.debug("DNS resilience unavailable: %s", e)
+
     app = QApplication(sys.argv)
     app.setApplicationName("SpeakUp")
     app.setWindowIcon(_app_icon())
@@ -222,10 +230,19 @@ def run_app() -> None:
     # System tray
     _tray = _create_tray_icon(app, overlay)  # noqa: F841 -- prevent GC
 
-    # Quiet hints (e.g. live transcription fell back to standard mode) → tray balloon
-    overlay.notice_updated.connect(
-        lambda msg: _tray.showMessage("SpeakUp", msg, QSystemTrayIcon.Information, 4000)
-    )
+    # Quiet hints (e.g. live transcription fell back to standard mode) → tray
+    # balloon, debounced so it can't spam (at most once per 60s).
+    import time as _time
+    _last_notice = {"t": 0.0}
+
+    def _show_notice(msg: str) -> None:
+        now = _time.monotonic()
+        if now - _last_notice["t"] < 60.0:
+            return
+        _last_notice["t"] = now
+        _tray.showMessage("SpeakUp", msg, QSystemTrayIcon.Information, 4000)
+
+    overlay.notice_updated.connect(_show_notice)
     if not has_key:
         _tray.showMessage(
             "SpeakUp",

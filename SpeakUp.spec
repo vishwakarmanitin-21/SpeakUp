@@ -44,6 +44,7 @@ a = Analysis(
         'src.transcription.realtime_client',
         'src.transcription.deepgram_client',
         'src.services.vocab_learner',
+        'src.services.dns_resilience',
         'src.ui.components.caption_window',
         'src.ui.components.onboarding_dialog',
         'src.ui.components.about_dialog',

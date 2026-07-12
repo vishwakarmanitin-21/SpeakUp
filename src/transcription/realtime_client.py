@@ -72,6 +72,7 @@ class RealtimeTranscriber:
         self._thread: threading.Thread | None = None
         self._result: Future = Future()      # worker sets: transcript str or None
         self.used_fallback = False            # True if we dropped to batch transcription
+        self.live_failed = False              # True ONLY when the live session errored/couldn't connect
 
     def start(self) -> None:
         """Start capturing IMMEDIATELY (sync) and spin up the realtime session.
@@ -83,6 +84,7 @@ class RealtimeTranscriber:
         self._result = Future()
         self._stop = False
         self.used_fallback = False
+        self.live_failed = False
 
         def _cb(indata, frames, time_info, status) -> None:
             if self._active:
@@ -212,6 +214,7 @@ class RealtimeTranscriber:
                         deltas, len(finalized), len(transcript))
             self._result.set_result(transcript or None)
         except Exception as e:
+            self.live_failed = True
             logger.warning("Realtime session failed (%s); using batch fallback", e)
             if not self._result.done():
                 self._result.set_result(None)

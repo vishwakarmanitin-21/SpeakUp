@@ -187,14 +187,16 @@ class Pipeline:
                 # standard cloud path internally, so live transcription can't lose
                 # a dictation. A genuine error (e.g. network fully down) propagates
                 # to the outer handler below.
-                fell_back = False
+                live_failed = False
                 try:
                     raw_text = await self._realtime.stop_and_transcribe()
-                    fell_back = bool(getattr(self._realtime, "used_fallback", False))
+                    # Only a genuine connect/session failure counts — a short or
+                    # silent clip that returns no segments is NOT "unavailable".
+                    live_failed = bool(getattr(self._realtime, "live_failed", False))
                 finally:
                     self._use_realtime = False
                     self._realtime = None
-                if fell_back:
+                if live_failed:
                     self._notify("Live transcription unavailable — used standard mode.")
             else:
                 # If live was requested but couldn't start, this batch path IS the
