@@ -107,6 +107,24 @@ python scripts/build.py
 # Output: dist/SpeakUp.exe
 ```
 
+### Releasing (one command)
+
+`release.ps1` does the whole release in one step so it can't be half-done —
+build, GitHub release, and the locally installed copy always end up in sync:
+
+```powershell
+.\release.ps1
+```
+
+It runs the tests, rebuilds `dist\SpeakUp.exe`, uploads it to the GitHub
+release for the current version (from `src\version.py`, creating the release if
+needed), then closes the running app, overwrites the installed copy at
+`%LOCALAPPDATA%\Programs\SpeakUp\SpeakUp.exe`, and relaunches it. It warns first
+if you have uncommitted or unpushed changes (so the exe can't silently ship code
+that isn't on GitHub). Flags: `-SkipTests`, `-NoRelease`, `-NoInstall`,
+`-Relaunch`. Bump `__version__` in `src\version.py` and the release targets the
+new tag automatically.
+
 ## Usage
 
 1. The overlay widget appears at the bottom of your screen (position configurable in Settings)
