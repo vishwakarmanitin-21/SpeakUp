@@ -20,6 +20,7 @@ from PyQt5.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSlider,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -202,6 +203,20 @@ class SettingsDialog(QDialog):
         self._scale_combo.addItem("Large (2x)", "large")
         appearance_layout.addRow("Size:", self._scale_combo)
 
+        # Transparency (30%–100%)
+        self._opacity_slider = QSlider(Qt.Horizontal)
+        self._opacity_slider.setRange(30, 100)
+        self._opacity_slider.setValue(100)
+        self._opacity_value = QLabel("100%")
+        self._opacity_value.setMinimumWidth(38)
+        self._opacity_slider.valueChanged.connect(
+            lambda v: self._opacity_value.setText(f"{v}%")
+        )
+        opacity_row = QHBoxLayout()
+        opacity_row.addWidget(self._opacity_slider)
+        opacity_row.addWidget(self._opacity_value)
+        appearance_layout.addRow("Opacity:", opacity_row)
+
         appearance_group.setLayout(appearance_layout)
         layout.addWidget(appearance_group)
 
@@ -258,10 +273,12 @@ class SettingsDialog(QDialog):
         footer.setStyleSheet("color:#8a94a0; font-size:11px; margin-top:6px;")
         layout.addWidget(footer)
 
-        # Put all the groups above inside a scroll area.
+        # Put all the groups above inside a scroll area. Never show a horizontal
+        # scrollbar — content should wrap/fit the width, only scroll vertically.
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setWidget(content)
         outer.addWidget(scroll)
 
@@ -493,6 +510,7 @@ class SettingsDialog(QDialog):
             if self._scale_combo.itemData(i) == self._config.widget_scale:
                 self._scale_combo.setCurrentIndex(i)
                 break
+        self._opacity_slider.setValue(int(round(self._config.widget_opacity * 100)))
 
         # Context
         self._include_clipboard_check.setChecked(self._config.include_clipboard)
@@ -594,6 +612,7 @@ class SettingsDialog(QDialog):
             "auto_start": self._auto_start_check.isChecked(),
             "widget_position": self._position_combo.currentData(),
             "widget_scale": self._scale_combo.currentData(),
+            "widget_opacity": self._opacity_slider.value() / 100.0,
         }
 
         try:

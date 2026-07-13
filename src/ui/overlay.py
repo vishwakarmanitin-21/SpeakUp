@@ -99,6 +99,8 @@ class OverlayWidget(QWidget):
         self._pipeline.set_state_callback(self._on_pipeline_state)
         self._pipeline.set_silence_callback(self._on_silence)
 
+        self._apply_opacity()
+
     def _setup_ui(self) -> None:
         # Main container with background
         self._container = QWidget(self)
@@ -221,6 +223,17 @@ class OverlayWidget(QWidget):
 
         self.adjustSize()
         self._position_widget()
+        self._apply_opacity()
+
+    def _apply_opacity(self) -> None:
+        """Apply the configured window opacity to the overlay and caption."""
+        try:
+            op = self._config.widget_opacity
+            self.setWindowOpacity(op)
+            if getattr(self, "_caption", None) is not None:
+                self._caption.setWindowOpacity(op)
+        except Exception:
+            pass
 
     # --- Compact mode hover expand/collapse ---
 

@@ -215,6 +215,11 @@ def run_app() -> None:
     except Exception as e:
         logger.debug("DNS resilience unavailable: %s", e)
 
+    # High-DPI: consistent scaling on laptop/4K displays (fixes odd layout widths
+    # like a spurious horizontal scrollbar in Settings). Must precede QApplication.
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+
     app = QApplication(sys.argv)
     app.setApplicationName("SpeakUp")
     app.setWindowIcon(_app_icon())
@@ -243,6 +248,16 @@ def run_app() -> None:
 
     # Load config (this loads .env)
     config = Config()
+
+    # Start with Windows by default: create the registry entry on launch if it's
+    # wanted (config) but not yet set. Users can turn it off in Settings, which
+    # sets config false + removes the entry, so we won't re-add it.
+    try:
+        from src.services.autostart import is_autostart_enabled, set_autostart
+        if config.auto_start and not is_autostart_enabled():
+            set_autostart(True)
+    except Exception as e:
+        logger.debug("Auto-start sync skipped: %s", e)
 
     # First run: show the onboarding wizard (skippable), but NEVER block launch —
     # the app opens either way and the user can add the key later via Settings.

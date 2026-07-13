@@ -271,6 +271,15 @@ class Config:
         """'compact' (0.5x), 'normal' (1x), or 'large' (2x)."""
         return self._get("widget_scale", "compact")
 
+    @property
+    def widget_opacity(self) -> float:
+        """Overlay/caption opacity, 0.3–1.0 (1.0 = fully opaque)."""
+        try:
+            v = float(self._get("widget_opacity", 1.0))
+        except (TypeError, ValueError):
+            v = 1.0
+        return max(0.3, min(1.0, v))
+
     # --- Startup ---
 
     @property
@@ -283,6 +292,14 @@ class Config:
     @property
     def track_usage(self) -> bool:
         return bool(self._get("track_usage", True))
+
+    @property
+    def log_transcripts(self) -> bool:
+        """Debug: log the raw transcript + rewrite (may contain sensitive text).
+
+        Off by default. Set true in config.json to diagnose miss/repeat issues.
+        """
+        return bool(self._get("log_transcripts", False))
 
     # --- Mutation ---
 
