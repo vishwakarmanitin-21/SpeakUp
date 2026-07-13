@@ -301,6 +301,11 @@ class Config:
         """
         return bool(self._get("log_transcripts", False))
 
+    @property
+    def suggest_dictionary_terms(self) -> bool:
+        """Whether to auto-suggest new personal-dictionary terms from dictations."""
+        return bool(self._get("suggest_dictionary_terms", True))
+
     # --- Mutation ---
 
     def save_user_overrides(self, overrides: dict) -> None:

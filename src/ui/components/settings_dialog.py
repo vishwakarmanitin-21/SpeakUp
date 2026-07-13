@@ -250,6 +250,14 @@ class SettingsDialog(QDialog):
         self._vocab_edit.setFixedHeight(70)
         vocab_layout.addWidget(self._vocab_edit)
 
+        self._suggest_check = QCheckBox("Suggest new terms from my dictations")
+        self._suggest_check.setToolTip(
+            "Auto-suggest uncommon names/jargon from your speech. Uncheck to stop "
+            "all suggestions."
+        )
+        self._suggest_check.toggled.connect(self._on_suggest_toggle)
+        vocab_layout.addWidget(self._suggest_check)
+
         # Auto-learned suggestions (recurring proper nouns from your dictations)
         self._suggest_label = QLabel("Suggested from your dictations:")
         self._suggest_label.setStyleSheet("color:#9aa4b0; margin-top:4px;")
@@ -520,10 +528,22 @@ class SettingsDialog(QDialog):
 
         # Personal dictionary
         self._vocab_edit.setPlainText(", ".join(self._config.custom_vocabulary))
+        self._suggest_check.setChecked(self._config.suggest_dictionary_terms)
         self._refresh_suggestions()
 
         # Reflect dependent enable/disable state for the loaded values
         self._update_dependent_states()
+
+    def _on_suggest_toggle(self, on: bool) -> None:
+        if on:
+            self._refresh_suggestions()
+        else:
+            self._suggest_label.setVisible(False)
+            while self._suggest_box.count():
+                item = self._suggest_box.takeAt(0)
+                w = item.widget()
+                if w is not None:
+                    w.deleteLater()
 
     def _refresh_suggestions(self) -> None:
         """Rebuild the auto-learned dictionary suggestion rows."""
@@ -609,6 +629,7 @@ class SettingsDialog(QDialog):
             "include_session_memory": self._include_memory_check.isChecked(),
             "include_vscode_file": self._include_vscode_check.isChecked(),
             "custom_vocabulary": vocab,
+            "suggest_dictionary_terms": self._suggest_check.isChecked(),
             "auto_start": self._auto_start_check.isChecked(),
             "widget_position": self._position_combo.currentData(),
             "widget_scale": self._scale_combo.currentData(),

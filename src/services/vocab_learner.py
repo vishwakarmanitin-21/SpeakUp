@@ -25,7 +25,7 @@ from src.config import Config
 logger = logging.getLogger("speakup")
 
 _FILE_NAME = "vocab_suggestions.json"
-_THRESHOLD = 2          # times a term must recur mid-sentence before it's suggested
+_THRESHOLD = 3          # times a term must recur mid-sentence before it's suggested
 _LEAD_WORD_RE = re.compile(r"[A-Za-z][A-Za-z'\-]{2,}")
 _SENTENCE_END = ".!?:;\n"
 
@@ -76,6 +76,44 @@ _COMMON = {
     "september", "october", "november", "december",
 }
 
+# Words the speech model already knows (so a personal-dictionary entry is
+# pointless) or that are otherwise common: brands/products, Title-Case business
+# words, acronyms, and contractions (I'm/I've are always capitalised).
+_COMMON |= {
+    # contractions
+    "i", "i've", "i'm", "i'll", "i'd", "we're", "we've", "we'll", "we'd",
+    "you're", "you've", "you'll", "you'd", "they're", "they've", "they'll",
+    "they'd", "it's", "that's", "there's", "here's", "what's", "who's", "let's",
+    "don't", "doesn't", "didn't", "won't", "can't", "cannot", "isn't", "aren't",
+    "wasn't", "weren't", "haven't", "hasn't", "hadn't", "wouldn't", "shouldn't",
+    "couldn't", "mustn't", "we", "he", "she", "it",
+    # brands / products / tech the STT model already recognises
+    "chrome", "github", "gmail", "google", "windows", "microsoft", "apple",
+    "amazon", "aws", "azure", "meta", "facebook", "instagram", "whatsapp",
+    "telegram", "slack", "zoom", "teams", "outlook", "excel", "word",
+    "powerpoint", "onedrive", "sharepoint", "linkedin", "twitter", "youtube",
+    "netflix", "spotify", "notion", "figma", "canva", "jira", "confluence",
+    "trello", "asana", "gitlab", "bitbucket", "docker", "kubernetes", "python",
+    "java", "javascript", "typescript", "react", "angular", "node", "android",
+    "ios", "mac", "macos", "linux", "ubuntu", "safari", "firefox", "edge",
+    "bing", "chatgpt", "openai", "deepgram", "claude", "anthropic", "gemini",
+    "copilot", "salesforce", "hubspot", "stripe", "paypal", "visa",
+    "mastercard", "uber", "swiggy", "zomato", "paytm", "phonepe",
+    # common Title-Case business / doc words
+    "review", "report", "meeting", "project", "update", "draft", "notes",
+    "note", "email", "team", "sprint", "roadmap", "backlog", "design", "sales",
+    "marketing", "finance", "admin", "budget", "plan", "agenda", "summary",
+    "action", "task", "deadline", "milestone", "feedback", "proposal",
+    "contract", "invoice", "dashboard", "analytics", "metrics", "strategy",
+    "vision", "mission", "goal", "objective", "quarter", "annual", "monthly",
+    "weekly", "daily", "morning", "evening", "afternoon", "night", "week",
+    "month", "year", "day", "time",
+    # common acronyms
+    "etf", "sip", "nav", "ipo", "gst", "roi", "kpi", "api", "url", "pdf",
+    "csv", "faq", "ceo", "cfo", "cto", "coo", "hr", "qa", "ux", "ui", "id",
+    "ok",
+}
+
 
 class VocabLearner:
     """Learns candidate dictionary terms from dictations."""
@@ -121,7 +159,7 @@ class VocabLearner:
 
     def observe(self, text: str) -> None:
         """Count proper-noun-like words that appear capitalised MID-sentence."""
-        if not text:
+        if not text or not Config().suggest_dictionary_terms:
             return
         try:
             known = self._known()
@@ -155,6 +193,8 @@ class VocabLearner:
 
     def pending_suggestions(self) -> list[str]:
         """Terms seen enough times, not yet added/ignored (most frequent first)."""
+        if not Config().suggest_dictionary_terms:
+            return []
         known = self._known()
         items = [
             (t, n) for t, n in self._data.get("counts", {}).items()

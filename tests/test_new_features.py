@@ -59,9 +59,11 @@ def _fresh_learner(tmp_path, monkeypatch):
 
 def test_learner_suggests_recurring_proper_noun(tmp_path, monkeypatch):
     vl = _fresh_learner(tmp_path, monkeypatch)
-    # Must appear capitalised MID-sentence (not just at a sentence start).
+    # Must appear capitalised MID-sentence (not just at a sentence start),
+    # and recur past the threshold before being suggested.
     vl.observe("I spoke to Zephyrion today about the plan.")
     vl.observe("We saw Zephyrion again yesterday.")
+    vl.observe("Ask Zephyrion about it.")
     assert "Zephyrion" in vl.pending_suggestions()
 
 
@@ -89,6 +91,7 @@ def test_learner_ignore_removes_suggestion(tmp_path, monkeypatch):
     vl = _fresh_learner(tmp_path, monkeypatch)
     vl.observe("I called Zephyrion earlier.")   # mid-sentence -> 1
     vl.observe("Please meet Zephyrion now.")    # mid-sentence -> 2
+    vl.observe("Tell Zephyrion today.")         # mid-sentence -> 3 (threshold)
     assert "Zephyrion" in vl.pending_suggestions()
     vl.ignore("Zephyrion")
     assert "Zephyrion" not in vl.pending_suggestions()

@@ -24,5 +24,6 @@
     "onboarding_complete": false,
     "widget_position": "bottom_center",
     "widget_scale": "compact",
-    "widget_opacity": 1.0
+    "widget_opacity": 1.0,
+    "suggest_dictionary_terms": true
 }
