@@ -165,7 +165,10 @@ class DeepgramTranscriber:
                         if t:
                             last_event = loop.time()
                             if msg.get("is_final"):
-                                finals.append(t)
+                                # Guard against a duplicate final segment being
+                                # emitted twice (would repeat a phrase in output).
+                                if not finals or finals[-1] != t:
+                                    finals.append(t)
                                 interim = ""
                             else:
                                 interim = t

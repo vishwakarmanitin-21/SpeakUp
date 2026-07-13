@@ -215,6 +215,8 @@ class Pipeline:
                 whisper = get_transcription_client()
                 raw_text = await whisper.transcribe(wav_bytes)
             logger.info("Transcription: %d words (%d chars)", len(raw_text.split()), len(raw_text))
+            if config.log_transcripts:
+                logger.info("RAW TRANSCRIPT: %r", raw_text)
             if raw_text.strip():
                 self._last_raw_text = raw_text  # cache for "re-run in another mode"
             if self._cancelled:
