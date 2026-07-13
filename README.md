@@ -21,8 +21,9 @@ Voice AI productivity tool that converts speech into structured, intelligent tex
 - **Clipboard-Safe Paste** — Auto-paste restores whatever you had on the clipboard after pasting, so dictation never silently overwrites it; opt in to keep the dictated text on the clipboard via Settings
 - **Desktop Overlay** — Minimal floating PyQt5 widget with mic button (3 visual states), mode selector, status indicator, and settings gear; configurable position (bottom-right, bottom-left, bottom-center) and size (compact, normal, large)
 - **Compact Mode** — Wispr Flow-style minimal bar that expands on hover to reveal controls; collapses back when mouse leaves
-- **Settings Panel** — Configure OpenAI & Deepgram API keys, GPT model, speech model, transcription provider (cloud/local) and live transcription, local model size, hotkey, output mode, widget position/size, auto-start, context toggles, personal dictionary (with auto-learned suggestions), and silence timeout; all changes hot-reload immediately
-- **Auto-Start with Windows** — Optional registry-based startup entry; toggle in Settings to launch SpeakUp on Windows boot
+- **Settings Panel** — Configure OpenAI & Deepgram API keys, GPT model (editable), speech model, transcription provider (cloud/local) and live transcription, local model size, hotkey, output mode, widget position/size/**opacity**, auto-start, context toggles, personal dictionary (with auto-learned suggestions), and silence timeout; all changes hot-reload immediately
+- **Auto-Start with Windows** — Registry-based startup entry, **on by default**; toggle off in Settings to stop launching SpeakUp on Windows boot
+- **Adjustable Opacity** — Set the overlay/caption transparency (30–100%) from Settings to suit your taste
 - **System Tray** — Runs in background with Show/Hide, Settings, User Guide, Usage & cost, Run setup again, and Quit; programmatic microphone icon
 - **First-Run Onboarding** — A skippable 3-step wizard on first launch: API key entry, a microphone test with a live level meter, and a 30-second tutorial; tracked by `onboarding_complete` and re-runnable from the tray. (CLI mode still prompts via stdin.)
 - **Auto-Learning Dictionary** — Watches your dictations for recurring proper-noun-like words not already in your dictionary and offers them as Add/Ignore suggestions in Settings → Personal Dictionary (so the dictionary grows from real use)
@@ -254,8 +255,10 @@ Settings can be changed via the gear icon on the overlay or by editing `config.j
 | `include_vscode_file` | `false` | Include active VS Code file content as context (Windows) |
 | `widget_position` | `bottom_center` | Widget position: `bottom_right`, `bottom_left`, or `bottom_center` |
 | `widget_scale` | `compact` | Widget size: `compact` (hover-expand), `normal`, or `large` (2x) |
-| `auto_start` | `false` | Start SpeakUp automatically with Windows |
+| `widget_opacity` | `1.0` | Overlay/caption opacity, `0.3`–`1.0` (Settings → Opacity slider) |
+| `auto_start` | `true` | Start SpeakUp automatically with Windows (default on; toggle off in Settings) |
 | `track_usage` | `true` | Log usage stats (incl. estimated cost) to `usage_stats.json` |
+| `log_transcripts` | `false` | **Debug.** Log the raw transcript to `speakup.log` (may contain sensitive text) |
 | `onboarding_complete` | `false` | Set true once the first-run setup wizard has been completed/dismissed |
 
 ## Privacy & Security
