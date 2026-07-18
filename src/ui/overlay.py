@@ -224,6 +224,12 @@ class OverlayWidget(QWidget):
         self.adjustSize()
         self._position_widget()
         self._apply_opacity()
+        # Live caption height may have changed — resize its pane.
+        try:
+            if getattr(self, "_caption", None) is not None:
+                self._caption.apply_config()
+        except Exception:
+            pass
 
     def _apply_opacity(self) -> None:
         """Apply the configured window opacity to the overlay and caption."""

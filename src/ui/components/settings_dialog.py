@@ -218,6 +218,18 @@ class SettingsDialog(QDialog):
         opacity_row.addWidget(self._opacity_value)
         appearance_layout.addRow("Opacity:", opacity_row)
 
+        # Live-caption height: how many lines it grows to before older words
+        # scroll off the top like a subtitle.
+        self._caption_lines_spin = QSpinBox()
+        self._caption_lines_spin.setRange(2, 12)
+        self._caption_lines_spin.setValue(6)
+        self._caption_lines_spin.setSuffix(" lines")
+        self._caption_lines_spin.setToolTip(
+            "How tall the live caption (shown while you speak) can grow before it "
+            "starts scrolling older words off the top. Default 6."
+        )
+        appearance_layout.addRow("Caption height:", self._caption_lines_spin)
+
         appearance_group.setLayout(appearance_layout)
         layout.addWidget(appearance_group)
 
@@ -520,6 +532,7 @@ class SettingsDialog(QDialog):
                 self._scale_combo.setCurrentIndex(i)
                 break
         self._opacity_slider.setValue(int(round(self._config.widget_opacity * 100)))
+        self._caption_lines_spin.setValue(self._config.caption_max_lines)
 
         # Context
         self._include_clipboard_check.setChecked(self._config.include_clipboard)
@@ -635,6 +648,7 @@ class SettingsDialog(QDialog):
             "widget_position": self._position_combo.currentData(),
             "widget_scale": self._scale_combo.currentData(),
             "widget_opacity": self._opacity_slider.value() / 100.0,
+            "caption_max_lines": self._caption_lines_spin.value(),
         }
 
         try:

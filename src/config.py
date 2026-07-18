@@ -280,6 +280,19 @@ class Config:
             v = 1.0
         return max(0.3, min(1.0, v))
 
+    @property
+    def caption_max_lines(self) -> int:
+        """Max lines the live caption grows to before older words scroll off.
+
+        The caption expands with your speech up to this many lines; beyond it,
+        it behaves like a subtitle. Clamped to a sensible 2–12.
+        """
+        try:
+            v = int(self._get("caption_max_lines", 6))
+        except (TypeError, ValueError):
+            v = 6
+        return max(2, min(12, v))
+
     # --- Startup ---
 
     @property

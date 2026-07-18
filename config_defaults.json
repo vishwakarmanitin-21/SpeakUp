@@ -25,5 +25,6 @@
     "widget_position": "bottom_center",
     "widget_scale": "compact",
     "widget_opacity": 1.0,
+    "caption_max_lines": 6,
     "suggest_dictionary_terms": true
 }

@@ -27,11 +27,14 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QDesktopWidget, QLabel, QVBoxLayout, QWidget
 
+from src.config import Config
+
 _WIDTH = 560          # fixed width
-_MAX_LINES = 6        # caption grows up to this many lines, then rolls old words off
+_DEFAULT_LINES = 6    # fallback if config is unreadable
 _PAD_X = 18           # horizontal text padding (inside the pill)
 _PAD_Y = 12           # vertical text padding (inside the pill)
 _FONT_PX = 16         # caption font size
+_LINE_SLACK = 4       # px added to the pill height so descenders aren't clipped
 _BOTTOM_GAP = 120     # px above the screen bottom (pill bottom sits here)
 _PAINT_MS = 33        # reveal cadence (~30fps) — smooth typewriter animation
 _MIN_STEP = 1         # min chars revealed per frame
@@ -76,12 +79,10 @@ class CaptionWindow(QWidget):
         layout.addStretch(1)
         layout.addWidget(self._label)
 
-        # Fixed pane height = room for _MAX_LINES (measured with the real font).
-        self._line_h = self._label.fontMetrics().lineSpacing()
-        self._window_h = _MAX_LINES * self._line_h + 2 * _PAD_Y + 8
-        self.setFixedSize(_WIDTH, self._window_h)
+        # Fixed pane height = room for the configured max lines (real font metrics).
         self._label_h = 0
         self._pos: tuple[int, int] | None = None
+        self._configure()
 
         self._pending = ""      # latest target text (may change many times/beat)
         self._display = ""      # text currently revealed toward the target
@@ -95,6 +96,25 @@ class CaptionWindow(QWidget):
         self._blinker = QTimer(self)
         self._blinker.setInterval(450)
         self._blinker.timeout.connect(self._blink)
+
+    def _configure(self) -> None:
+        """(Re)size the fixed pane from the configured max-line count."""
+        try:
+            self._max_lines = Config().caption_max_lines
+        except Exception:
+            self._max_lines = _DEFAULT_LINES
+        self._line_h = self._label.fontMetrics().lineSpacing()
+        self._window_h = self._max_lines * self._line_h + 2 * _PAD_Y + _LINE_SLACK + 6
+        self.setFixedSize(_WIDTH, self._window_h)
+
+    def apply_config(self) -> None:
+        """Re-read settings (e.g. caption height) and resize; call after a save."""
+        self._configure()
+        self._label_h = 0            # force the pill height to be recomputed
+        self._pos = None             # force a reposition for the new pane height
+        if self.isVisible():
+            self._position_once()
+            self._render()
 
     def show_caption(self, text: str) -> None:
         """Record the target caption; a timer reveals toward it smoothly (~30fps)."""
@@ -143,17 +163,28 @@ class CaptionWindow(QWidget):
             self._display = target[: self._reveal_len(cur, target)]
         self._render()
 
-    def _text_height(self, text: str) -> int:
-        """Wrapped pixel height of `text` at the pill's text width."""
+    def _line_count(self, text: str) -> int:
+        """Number of wrapped lines `text` occupies at the pill's text width."""
         fm = self._label.fontMetrics()
         text_w = max(50, _WIDTH - 2 * _PAD_X)
-        return fm.boundingRect(0, 0, text_w, 100000, Qt.TextWordWrap, text).height()
+        r = fm.boundingRect(0, 0, text_w, 100000, Qt.TextWordWrap, text)
+        return max(1, round(r.height() / fm.lineSpacing()))
+
+    def _pill_height(self, text: str) -> int:
+        """Exact pill height for `text`: whole line-boxes + padding + slack.
+
+        boundingRect() returns the tight ink bounds, which under-reports what the
+        label needs to draw a full line-box — clipping the last line's descenders
+        (g, y, p). Sizing to N line-boxes (lineSpacing) + slack fixes that.
+        """
+        lines = self._line_count(text)
+        return lines * self._label.fontMetrics().lineSpacing() + 2 * _PAD_Y + _LINE_SLACK
 
     def _fit(self, text: str) -> str:
-        """Longest TAIL of `text` (whole words) that fits in _MAX_LINES.
+        """Longest TAIL of `text` (whole words) that fits in the configured lines.
 
         Below the cap the whole text fits, so the pill simply grows. Once the
-        text would exceed _MAX_LINES, older words scroll off the front instead of
+        text would exceed the cap, older words scroll off the front instead of
         overflowing the pane. Grows the tail from the end, so cost is
         ~(visible words), not total length.
         """
@@ -161,11 +192,10 @@ class CaptionWindow(QWidget):
         if not words:
             return text
         try:
-            max_h = _MAX_LINES * self._label.fontMetrics().lineSpacing()
             keep: list[str] = []
             for w in reversed(words):
                 candidate = " ".join([w] + keep)
-                if self._text_height(candidate + " ▌") > max_h and keep:
+                if self._line_count(candidate + " ▌") > self._max_lines and keep:
                     break               # one more word would overflow — stop
                 keep.insert(0, w)
             return " ".join(keep)
@@ -177,7 +207,7 @@ class CaptionWindow(QWidget):
         fitted = self._fit(self._display)
         # Size the pill to its text so it grows upward within the fixed pane.
         try:
-            new_h = min(self._window_h, self._text_height(fitted + " ▌") + 2 * _PAD_Y)
+            new_h = min(self._window_h, self._pill_height(fitted + " ▌"))
             if new_h != self._label_h:
                 self._label_h = new_h
                 self._label.setFixedHeight(new_h)

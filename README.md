@@ -274,6 +274,7 @@ Settings can be changed via the gear icon on the overlay or by editing `config.j
 | `widget_position` | `bottom_center` | Widget position: `bottom_right`, `bottom_left`, or `bottom_center` |
 | `widget_scale` | `compact` | Widget size: `compact` (hover-expand), `normal`, or `large` (2x) |
 | `widget_opacity` | `1.0` | Overlay/caption opacity, `0.3`–`1.0` (Settings → Opacity slider) |
+| `caption_max_lines` | `6` | Lines the live caption grows to before older words scroll off, `2`–`12` (Settings → Caption height) |
 | `auto_start` | `true` | Start SpeakUp automatically with Windows (default on; toggle off in Settings) |
 | `track_usage` | `true` | Log usage stats (incl. estimated cost) to `usage_stats.json` |
 | `log_transcripts` | `false` | **Debug.** Log the raw transcript to `speakup.log` (may contain sensitive text) |
