@@ -9,6 +9,12 @@ every word). A translucent frameless window flashes when it's resized or moved,
 so per-word updates only repaint the label text — no geometry churn. Text is
 bottom-aligned and word-wrapped like a subtitle; a rolling window of recent
 characters keeps long dictations tidy (older lines scroll off the top).
+
+Live-transcription engines emit interim results in bursts (several a beat, then
+a pause), and painting every one makes the caption stutter. So incoming text is
+*coalesced*: show_caption() just records the latest text, and a steady ~15fps
+timer commits it to the label. That converts bursty updates into an even flow,
+and truncation happens on a word boundary so text never chops mid-word.
 """
 from __future__ import annotations
 
@@ -17,8 +23,9 @@ from PyQt5.QtWidgets import QDesktopWidget, QLabel, QVBoxLayout, QWidget
 
 _WIDTH = 560          # fixed width
 _HEIGHT = 92          # fixed height (~2-3 lines) — never changes, so no flash
-_MAX_CHARS = 150      # rolling window of recent text
+_MAX_CHARS = 170      # rolling window of recent text
 _BOTTOM_GAP = 120     # px above the screen bottom (sits above the overlay)
+_PAINT_MS = 66        # repaint cadence (~15fps) — smooths bursty interim updates
 
 
 class CaptionWindow(QWidget):
@@ -52,28 +59,50 @@ class CaptionWindow(QWidget):
         self.setFixedSize(_WIDTH, _HEIGHT)
         self._pos: tuple[int, int] | None = None
 
-        self._text = ""
+        self._pending = ""      # latest text requested (may change many times/beat)
+        self._display = ""      # text currently committed to the label
         self._caret_on = True
+
+        # Text repaints are throttled to a steady cadence (smooth flow); the
+        # caret blinks on its own slower timer.
+        self._painter = QTimer(self)
+        self._painter.setInterval(_PAINT_MS)
+        self._painter.timeout.connect(self._tick_paint)
         self._blinker = QTimer(self)
         self._blinker.setInterval(450)
         self._blinker.timeout.connect(self._blink)
 
+    @staticmethod
+    def _truncate(t: str) -> str:
+        """Keep the tail within the box, cutting at a word boundary (no mid-word)."""
+        if len(t) <= _MAX_CHARS:
+            return t
+        cut = t[-_MAX_CHARS:]
+        sp = cut.find(" ")
+        if 0 <= sp <= 40:            # snap to the next word start, if one is close
+            cut = cut[sp + 1:]
+        return "… " + cut
+
     def show_caption(self, text: str) -> None:
-        """Update and show the caption (positions once, then only repaints text)."""
-        t = (text or "").strip()
-        if len(t) > _MAX_CHARS:
-            t = "…" + t[-_MAX_CHARS:]
-        self._text = t or "Listening…"
-        self._render()
+        """Record the latest caption; a timer commits it to screen at ~15fps."""
+        self._pending = self._truncate((text or "").strip()) or "Listening…"
         self._position_once()
         if not self.isVisible():
             self.show()
+        if not self._painter.isActive():
+            self._painter.start()
         if not self._blinker.isActive():
             self._blinker.start()
 
+    def _tick_paint(self) -> None:
+        """Commit the latest pending text — only repaints when it actually changed."""
+        if self._pending != self._display:
+            self._display = self._pending
+            self._render()
+
     def _render(self) -> None:
         caret = "▌" if self._caret_on else " "
-        self._label.setText(f"{self._text} {caret}")
+        self._label.setText(f"{self._display} {caret}")
 
     def _blink(self) -> None:
         self._caret_on = not self._caret_on
@@ -93,8 +122,10 @@ class CaptionWindow(QWidget):
             pass
 
     def hide_caption(self) -> None:
+        self._painter.stop()
         self._blinker.stop()
         self.hide()
-        self._text = ""
+        self._pending = ""
+        self._display = ""
         self._label.setText("")
         self._pos = None
