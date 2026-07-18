@@ -317,6 +317,17 @@ def run_app() -> None:
     # Give overlay a reference so Settings can update the hotkey live
     overlay.set_hotkey_listener(hotkey)
 
+    # Keep-warm heartbeat: ping the rewrite connection every 60s (and once now)
+    # so the TLS session never goes cold. Without this, the first dictation after
+    # a few idle minutes pays a ~3-4s reconnect tax; with it, it's as fast as a
+    # warm one. Best-effort and silent — it can never affect a dictation.
+    from PyQt5.QtCore import QTimer as _QTimer
+    pipeline.keep_warm()
+    _warm_timer = _QTimer()
+    _warm_timer.setInterval(60_000)
+    _warm_timer.timeout.connect(pipeline.keep_warm)
+    _warm_timer.start()
+
 
     # Log unhandled exceptions in async tasks so they don't vanish silently
     def _handle_exception(loop_ref, context):

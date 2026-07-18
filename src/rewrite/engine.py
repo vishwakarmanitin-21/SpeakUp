@@ -67,7 +67,7 @@ class RewriteEngine:
 
             http_client = httpx.AsyncClient(
                 timeout=httpx.Timeout(60.0, connect=10.0),
-                limits=httpx.Limits(max_keepalive_connections=4, keepalive_expiry=120.0),
+                limits=httpx.Limits(max_keepalive_connections=4, keepalive_expiry=180.0),
             )
             self._client = AsyncOpenAI(api_key=api_key, http_client=http_client)
         except Exception as e:  # pragma: no cover
@@ -84,7 +84,10 @@ class RewriteEngine:
         """
         try:
             key = os.getenv("OPENAI_API_KEY", "")
-            if not key or time.monotonic() - self._last_warm < 90.0:
+            # Throttle < the background heartbeat interval (60s) so a heartbeat
+            # always fires, and < the connection keep-alive (180s) so the socket
+            # never goes cold between dictations.
+            if not key or time.monotonic() - self._last_warm < 50.0:
                 return
             self._ensure_worker()
 

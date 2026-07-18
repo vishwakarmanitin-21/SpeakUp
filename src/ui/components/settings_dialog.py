@@ -78,11 +78,12 @@ class SettingsDialog(QDialog):
         self._model_combo = QComboBox()
         self._model_combo.setEditable(True)  # type any current OpenAI model id
         self._model_combo.addItems(
-            ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1"]
+            ["gpt-4.1-nano", "gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1"]
         )
         self._model_combo.setToolTip(
             "The model that cleans up & formats your speech.\n"
-            "gpt-4o-mini: fast + cheap, great default.\n"
+            "gpt-4.1-nano: fastest, lowest lag — but weaker on complex formatting.\n"
+            "gpt-4o-mini: fast + cheap, great default (recommended).\n"
             "gpt-4o / larger: higher quality on complex formatting, but SLOWER.\n"
             "You can type any current OpenAI model id and hit Test."
         )

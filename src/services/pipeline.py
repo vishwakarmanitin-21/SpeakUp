@@ -100,6 +100,17 @@ class Pipeline:
     def state(self) -> str:
         return self._state
 
+    def keep_warm(self) -> None:
+        """Ping the rewrite connection so it never goes cold (background heartbeat).
+
+        Called on a timer while the app is idle; the first dictation after a long
+        pause is then as fast as a warm one instead of paying a reconnect tax.
+        """
+        try:
+            self._rewriter.warm_up()
+        except Exception:
+            pass
+
     def start_recording(self) -> None:
         self._cancelled = False
         self._silence_detector.reset()
@@ -233,6 +244,7 @@ class Pipeline:
 
             if stream_output:
                 chunks: list[str] = []
+                first_token = False
                 self._inserter.begin_stream()
                 try:
                     async for delta in self._rewriter.rewrite_stream(
@@ -240,6 +252,14 @@ class Pipeline:
                     ):
                         if self._cancelled:
                             break
+                        if not first_token:
+                            first_token = True
+                            # Time-to-first-word from key-release — this is the
+                            # latency the user actually perceives (text appears).
+                            logger.info(
+                                "First word after %d ms",
+                                int((time.monotonic() - _start) * 1000),
+                            )
                         chunks.append(delta)
                         self._inserter.feed_stream(delta)
                 finally:
