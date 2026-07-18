@@ -10,11 +10,13 @@ so per-word updates only repaint the label text — no geometry churn. Text is
 bottom-aligned and word-wrapped like a subtitle; a rolling window of recent
 characters keeps long dictations tidy (older lines scroll off the top).
 
-Live-transcription engines emit interim results in bursts (several a beat, then
-a pause), and painting every one makes the caption stutter. So incoming text is
-*coalesced*: show_caption() just records the latest text, and a steady ~15fps
-timer commits it to the label. That converts bursty updates into an even flow,
-and truncation happens on a word boundary so text never chops mid-word.
+Live-transcription engines emit interim results in 2-3 word chunks (several a
+beat, then a pause), so even a steady repaint lands the text in jumps. So the
+caption doesn't just show the latest text — it *reveals* toward it a few
+characters per frame (a typewriter effect). show_caption() records the target
+text, and a ~30fps timer walks the displayed text toward it with an ease-out
+(faster when far behind, so it stays near-live), producing a smooth flow out of
+chunky data. Truncation happens on a word boundary so text never chops mid-word.
 """
 from __future__ import annotations
 
@@ -25,7 +27,9 @@ _WIDTH = 560          # fixed width
 _HEIGHT = 92          # fixed height (~2-3 lines) — never changes, so no flash
 _MAX_CHARS = 170      # rolling window of recent text
 _BOTTOM_GAP = 120     # px above the screen bottom (sits above the overlay)
-_PAINT_MS = 66        # repaint cadence (~15fps) — smooths bursty interim updates
+_PAINT_MS = 33        # reveal cadence (~30fps) — smooth typewriter animation
+_MIN_STEP = 1         # min chars revealed per frame
+_EASE = 5             # reveal ~1/EASE of the remaining gap per frame (catch-up)
 
 
 class CaptionWindow(QWidget):
@@ -84,7 +88,7 @@ class CaptionWindow(QWidget):
         return "… " + cut
 
     def show_caption(self, text: str) -> None:
-        """Record the latest caption; a timer commits it to screen at ~15fps."""
+        """Record the target caption; a timer reveals toward it smoothly (~30fps)."""
         self._pending = self._truncate((text or "").strip()) or "Listening…"
         self._position_once()
         if not self.isVisible():
@@ -94,11 +98,41 @@ class CaptionWindow(QWidget):
         if not self._blinker.isActive():
             self._blinker.start()
 
+    @staticmethod
+    def _reveal_len(cur: str, target: str) -> int:
+        """How many chars of `target` to show this frame, walking up from `cur`.
+
+        Pure helper (no Qt) so the typewriter behaviour is unit-testable.
+        """
+        # Longest common prefix of what's shown and where we're heading.
+        n = 0
+        limit = min(len(cur), len(target))
+        while n < limit and cur[n] == target[n]:
+            n += 1
+
+        if n == len(cur) and len(target) > len(cur):
+            # Pure growth (the usual case): reveal forward, faster when far behind.
+            gap = len(target) - len(cur)
+            step = max(_MIN_STEP, gap // _EASE)
+            return min(len(target), len(cur) + step)
+        if n == len(target):
+            # The target is shorter (interim shrank / finalized) — snap to it.
+            return len(target)
+        # The interim was revised mid-word — drop back to the shared prefix and
+        # start revealing the new tail from there.
+        return min(len(target), n + _MIN_STEP)
+
     def _tick_paint(self) -> None:
-        """Commit the latest pending text — only repaints when it actually changed."""
-        if self._pending != self._display:
-            self._display = self._pending
-            self._render()
+        """Walk the displayed text one step toward the target (typewriter reveal)."""
+        target, cur = self._pending, self._display
+        if cur == target:
+            return
+        if target == "Listening…":
+            # Placeholder should appear at once, not type itself out.
+            self._display = target
+        else:
+            self._display = target[: self._reveal_len(cur, target)]
+        self._render()
 
     def _render(self) -> None:
         caret = "▌" if self._caret_on else " "

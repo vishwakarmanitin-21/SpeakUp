@@ -98,6 +98,35 @@ def test_learner_ignore_removes_suggestion(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
+# Live-caption typewriter reveal
+# --------------------------------------------------------------------------- #
+
+def test_caption_reveal_grows_smoothly_and_reaches_target():
+    from src.ui.components.caption_window import CaptionWindow as C
+
+    # A 2-3 word chunk lands at once; the reveal walks toward it over frames
+    # (never overshooting), and converges exactly on the target.
+    cur, target = "", "Sending a trial message"
+    steps = 0
+    while cur != target:
+        cur = target[: C._reveal_len(cur, target)]
+        steps += 1
+        assert target.startswith(cur)        # only ever a prefix of the target
+        assert steps < 200                    # always converges
+    assert cur == target
+    assert steps > 1                          # revealed gradually, not one jump
+
+
+def test_caption_reveal_handles_shrink_and_revision():
+    from src.ui.components.caption_window import CaptionWindow as C
+
+    # Interim shrank / finalized to a shorter prefix -> snap straight to it.
+    assert C._reveal_len("hello world", "hello") == len("hello")
+    # Interim was revised mid-word -> fall back toward the shared prefix.
+    assert C._reveal_len("hello", "hello world") <= len("hello world")
+
+
+# --------------------------------------------------------------------------- #
 # Prompt assembly
 # --------------------------------------------------------------------------- #
 
