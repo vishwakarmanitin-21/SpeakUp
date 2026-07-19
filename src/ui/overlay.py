@@ -58,6 +58,12 @@ class OverlayWidget(QWidget):
             | Qt.Tool  # Prevents taskbar entry
         )
         self.setAttribute(Qt.WA_TranslucentBackground)
+        # Re-showing must not steal focus from the app being dictated into.
+        self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        # Whether the overlay SHOULD be on screen. Only the user (tray Show/Hide)
+        # sets this False; the keep-on-top timer uses it to re-show the overlay
+        # if Windows buries/hides it (Win+D, a fullscreen app, lock, display change).
+        self._intended_visible = True
 
         self._pipeline = pipeline
         self._config = Config()
@@ -458,19 +464,32 @@ class OverlayWidget(QWidget):
 
     def toggle_visibility(self) -> None:
         if self.isVisible():
+            self._intended_visible = False
             self.hide()
         else:
+            self._intended_visible = True
             self.show()
             self.raise_()
             self._keep_on_top()
 
     def _keep_on_top(self) -> None:
-        """Re-assert always-on-top without stealing focus (Windows demotes it)."""
-        if not self.isVisible():
-            return
+        """Keep the overlay visible and always-on-top without stealing focus.
+
+        Windows can both demote a topmost window AND hide it outright (Win+D, a
+        fullscreen app, lock screen, display change). Re-assert topmost, and if
+        the OS hid it while the user still wants it shown, bring it back — all
+        without activating it (which would move keyboard focus off the app the
+        user is dictating into).
+        """
+        if not self._intended_visible:
+            return  # user explicitly hid it via the tray — leave it hidden
         # Don't jump above an open dialog (Settings/onboarding are modal).
         if QApplication.activeModalWidget() is not None:
             return
+        # Keep Qt's own visibility state in sync (focus-safe: WA_ShowWithoutActivating)
+        # so the tray Show/Hide toggle never needs a double-tap to recover.
+        if not self.isVisible():
+            self.show()
         if sys.platform == "win32":
             try:
                 import ctypes
@@ -478,13 +497,21 @@ class OverlayWidget(QWidget):
                 SWP_NOSIZE = 0x0001
                 SWP_NOMOVE = 0x0002
                 SWP_NOACTIVATE = 0x0010
+                SWP_SHOWWINDOW = 0x0040
+                SW_SHOWNA = 8  # show in current state, do NOT activate
+                hwnd = int(self.winId())
+                # Un-hide first (no-op if already shown), then pin topmost — both
+                # focus-safe so the user's active app keeps keyboard focus.
+                ctypes.windll.user32.ShowWindow(hwnd, SW_SHOWNA)
                 ctypes.windll.user32.SetWindowPos(
-                    int(self.winId()), HWND_TOPMOST, 0, 0, 0, 0,
-                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                    hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
                 )
             except Exception:
                 pass
         else:
+            if not self.isVisible():
+                self.show()
             self.raise_()
 
     def open_settings(self) -> None:

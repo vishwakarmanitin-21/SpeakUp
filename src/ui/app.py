@@ -274,6 +274,7 @@ def run_app() -> None:
         if conn is not None:
             conn.readAll()
             conn.disconnectFromServer()
+        overlay._intended_visible = True  # a relaunch means "show it"
         overlay.show()
         overlay.raise_()
         try:
