@@ -299,8 +299,11 @@ class SettingsDialog(QDialog):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        # Only scroll horizontally if a screen is genuinely too narrow — the
+        # window is sized to the content below, so normally it never appears.
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll.setWidget(content)
+        self._scroll = scroll
         outer.addWidget(scroll)
 
         # --- Buttons (fixed below the scroll area) ---
@@ -395,11 +398,20 @@ class SettingsDialog(QDialog):
             QPushButton#primary:hover { background-color: #6fd0fb; }
         """)
 
-        # Open tall enough to show all content; the scroll bar only appears if
-        # that would exceed the available screen height.
+        # Size to FIT the content so nothing is clipped on the right. Width =
+        # the content's natural width + the vertical scrollbar + margins, but
+        # never wider than the screen. Height grows to content, capped to screen.
+        content.adjustSize()
         screen = QApplication.primaryScreen().availableGeometry()
-        wanted_h = content.sizeHint().height() + 90  # + buttons row & margins
-        self.resize(480, min(wanted_h, screen.height() - 80))
+        sb = scroll.verticalScrollBar().sizeHint().width() or 18
+        wanted_w = content.sizeHint().width() + sb + 32   # + scrollbar + margins
+        # Fit the content, but stay within [480, 760] and never wider than the
+        # screen; if a screen is genuinely too small the horizontal scrollbar
+        # (AsNeeded) makes the overflow reachable instead of clipping it.
+        wanted_w = max(480, min(wanted_w, 760, screen.width() - 80))
+        wanted_h = content.sizeHint().height() + 90       # + buttons row & margins
+        wanted_h = min(wanted_h, screen.height() - 80)
+        self.resize(wanted_w, wanted_h)
 
     def _update_dependent_states(self) -> None:
         """Enable only the settings relevant to the current selections."""
