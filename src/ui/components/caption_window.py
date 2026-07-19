@@ -34,7 +34,6 @@ _DEFAULT_LINES = 6    # fallback if config is unreadable
 _PAD_X = 18           # horizontal text padding (inside the pill)
 _PAD_Y = 12           # vertical text padding (inside the pill)
 _FONT_PX = 16         # caption font size
-_LINE_SLACK = 4       # px added to the pill height so descenders aren't clipped
 _BOTTOM_GAP = 120     # px above the screen bottom (pill bottom sits here)
 _PAINT_MS = 33        # reveal cadence (~30fps) — smooth typewriter animation
 _MIN_STEP = 1         # min chars revealed per frame
@@ -79,7 +78,17 @@ class CaptionWindow(QWidget):
         layout.addStretch(1)
         layout.addWidget(self._label)
 
-        # Fixed pane height = room for the configured max lines (real font metrics).
+        # Hidden twin used only to MEASURE height. Qt's own heightForWidth() is
+        # the authoritative "how tall must this label be" — it includes the
+        # stylesheet padding and QLabel's internal margins that a hand-rolled
+        # line-count formula misses (which is what clipped the last line).
+        self._measure = QLabel()
+        self._measure.setWordWrap(True)
+        self._measure.setFont(self._label.font())
+        self._measure.setStyleSheet(self._label.styleSheet())
+        self._measure.setFixedWidth(_WIDTH)
+
+        # Fixed pane height = room for the configured max lines (measured exactly).
         self._label_h = 0
         self._pos: tuple[int, int] | None = None
         self._configure()
@@ -104,7 +113,11 @@ class CaptionWindow(QWidget):
         except Exception:
             self._max_lines = _DEFAULT_LINES
         self._line_h = self._label.fontMetrics().lineSpacing()
-        self._window_h = self._max_lines * self._line_h + 2 * _PAD_Y + _LINE_SLACK + 6
+        # One line's measured height (incl. padding), plus one line-height per
+        # extra line = the exact height the pill needs at _max_lines.
+        one_line = self._measured_h("Ag")
+        self._max_h = one_line + (self._max_lines - 1) * self._line_h
+        self._window_h = self._max_h + 6
         self.setFixedSize(_WIDTH, self._window_h)
 
     def apply_config(self) -> None:
@@ -163,22 +176,18 @@ class CaptionWindow(QWidget):
             self._display = target[: self._reveal_len(cur, target)]
         self._render()
 
-    def _line_count(self, text: str) -> int:
-        """Number of wrapped lines `text` occupies at the pill's text width."""
-        fm = self._label.fontMetrics()
-        text_w = max(50, _WIDTH - 2 * _PAD_X)
-        r = fm.boundingRect(0, 0, text_w, 100000, Qt.TextWordWrap, text)
-        return max(1, round(r.height() / fm.lineSpacing()))
+    def _measured_h(self, text: str) -> int:
+        """Exact pixel height QLabel needs for `text` at the pane width.
 
-    def _pill_height(self, text: str) -> int:
-        """Exact pill height for `text`: whole line-boxes + padding + slack.
-
-        boundingRect() returns the tight ink bounds, which under-reports what the
-        label needs to draw a full line-box — clipping the last line's descenders
-        (g, y, p). Sizing to N line-boxes (lineSpacing) + slack fixes that.
+        Uses the hidden twin's heightForWidth() — Qt's own layout calculation,
+        which correctly includes the stylesheet padding and internal margins, so
+        the last line's descenders (g, y, p) are never clipped.
         """
-        lines = self._line_count(text)
-        return lines * self._label.fontMetrics().lineSpacing() + 2 * _PAD_Y + _LINE_SLACK
+        self._measure.setText(text)
+        h = self._measure.heightForWidth(_WIDTH)
+        if h <= 0:
+            h = self._measure.sizeHint().height()
+        return h
 
     def _fit(self, text: str) -> str:
         """Longest TAIL of `text` (whole words) that fits in the configured lines.
@@ -195,7 +204,7 @@ class CaptionWindow(QWidget):
             keep: list[str] = []
             for w in reversed(words):
                 candidate = " ".join([w] + keep)
-                if self._line_count(candidate + " ▌") > self._max_lines and keep:
+                if self._measured_h(candidate + " ▌") > self._max_h and keep:
                     break               # one more word would overflow — stop
                 keep.insert(0, w)
             return " ".join(keep)
@@ -207,7 +216,7 @@ class CaptionWindow(QWidget):
         fitted = self._fit(self._display)
         # Size the pill to its text so it grows upward within the fixed pane.
         try:
-            new_h = min(self._window_h, self._pill_height(fitted + " ▌"))
+            new_h = min(self._window_h, self._measured_h(fitted + " ▌"))
             if new_h != self._label_h:
                 self._label_h = new_h
                 self._label.setFixedHeight(new_h)
