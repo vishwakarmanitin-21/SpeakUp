@@ -761,3 +761,23 @@ def test_recording_past_the_cap_is_processed_with_a_notice():
     check(me)
     me._finish_missed_release.assert_called_once()
     assert "5-minute" in me.notice_updated.emit.call_args[0][0]
+
+
+def test_deepgram_uses_the_closer_endpoint(monkeypatch):
+    from src.transcription import deepgram_client as dg
+
+    monkeypatch.setattr(dg, "_dg_host", dg._DG_HOSTS[0])
+    times = {"api.deepgram.com": 305.0, "api.eu.deepgram.com": 165.0}
+    monkeypatch.setattr(dg, "_tcp_connect_ms", lambda host: times[host])
+    dg._probe_hosts()
+    assert dg._dg_host == "api.eu.deepgram.com"
+    assert dg._build_url().startswith("wss://api.eu.deepgram.com/v1/listen?")
+
+
+def test_deepgram_keeps_the_default_when_neither_endpoint_answers(monkeypatch):
+    from src.transcription import deepgram_client as dg
+
+    monkeypatch.setattr(dg, "_dg_host", dg._DG_HOSTS[0])
+    monkeypatch.setattr(dg, "_tcp_connect_ms", lambda host: float("inf"))
+    dg._probe_hosts()
+    assert dg._dg_host == "api.deepgram.com"

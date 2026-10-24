@@ -91,6 +91,15 @@ class Pipeline:
 
         self._recorder._audio_callback = _cb_with_silence
 
+        # Pick the closer Deepgram endpoint now, in the background, so the
+        # first dictation's live captions already use it.
+        if config.deepgram_api_key:
+            try:
+                from src.transcription.deepgram_client import start_endpoint_probe
+                start_endpoint_probe()
+            except Exception:
+                pass
+
     def set_state_callback(self, callback: Callable[[str], None]) -> None:
         self._on_state_change = callback
 

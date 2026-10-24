@@ -17,6 +17,7 @@ import io
 import json
 import logging
 import threading
+import time
 import urllib.parse
 from concurrent.futures import Future
 
@@ -42,7 +43,11 @@ _DG_PARAMS = {
     "smart_format": "true",
     "punctuate": "true",
 }
-_DG_BASE_URL = "wss://api.deepgram.com/v1/listen?"
+_DG_HOSTS = ("api.deepgram.com", "api.eu.deepgram.com")
+_DG_URL = "wss://{host}/v1/listen?"
+# Chosen once per run by _probe_hosts(); until then the US default.
+_dg_host = _DG_HOSTS[0]
+_probe_started = False
 _KEYWORD_BOOST = 2    # nova-2 default is 1; higher raises false positives
 _MAX_KEYWORDS = 100   # Deepgram's per-request limit
 
@@ -89,7 +94,48 @@ def _build_url() -> str:
                         "keyterm" if keyterm_style else "keywords")
     except Exception as e:  # a bad dictionary must never stop transcription
         logger.debug("Could not add dictionary keywords: %s", e)
-    return _DG_BASE_URL + urllib.parse.urlencode(params)
+    return _DG_URL.format(host=_dg_host) + urllib.parse.urlencode(params)
+
+
+def _tcp_connect_ms(host: str, tries: int = 2) -> float:
+    import socket
+
+    best = float("inf")
+    for _ in range(tries):
+        t = time.monotonic()
+        try:
+            socket.create_connection((host, 443), timeout=3).close()
+        except OSError:
+            continue
+        best = min(best, (time.monotonic() - t) * 1000)
+    return best
+
+
+def _probe_hosts() -> None:
+    """Pick the closer Deepgram endpoint (US or EU) for this run.
+
+    Opening the live-caption socket costs ~4 network round trips before any
+    words come back. From India (2026-10-24) a round trip is ~305 ms to the
+    US endpoint and ~165 ms to the EU one: the socket opened ~0.4 s sooner
+    on EU with an identical transcript. Deepgram's EU endpoint takes the
+    same keys and billing. Measured, not assumed, so it suits anyone.
+    """
+    global _dg_host
+    timings = {h: _tcp_connect_ms(h) for h in _DG_HOSTS}
+    best = min(timings, key=timings.get)
+    if timings[best] != float("inf"):
+        _dg_host = best
+    logger.info("Deepgram endpoint: %s (%s)", _dg_host,
+                ", ".join(f"{h} {t:.0f} ms" for h, t in timings.items()))
+
+
+def start_endpoint_probe() -> None:
+    """Run _probe_hosts() once, in the background (never on the hotkey path)."""
+    global _probe_started
+    if _probe_started:
+        return
+    _probe_started = True
+    threading.Thread(target=_probe_hosts, daemon=True, name="dg-probe").start()
 
 
 async def _ws_connect(url: str, headers: dict):
