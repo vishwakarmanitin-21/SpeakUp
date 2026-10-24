@@ -8,6 +8,8 @@ Voice AI productivity tool that converts speech into structured, intelligent tex
 - **Auto-Stop on Silence** — Optional RMS-based silence detection with configurable threshold and timeout
 - **Speech-to-Text** — OpenAI cloud (`gpt-4o-transcribe` by default — most accurate; `gpt-4o-mini-transcribe` for speed, or legacy `whisper-1`) or faster-whisper (local, offline); switchable in Settings
 - **Live Captions** — With live transcription on, words appear in a floating caption as you speak. OpenAI gives per-pause (segment) captions; an optional **Deepgram** key (`DEEPGRAM_API_KEY`) upgrades this to smooth word-by-word streaming. OpenAI still does the rewrite, and the live path falls back to OpenAI batch on any failure
+- **Clean-up model, with a backup** — `gpt-6-luna` by default (cheapest, no announced retirement); any OpenAI or Claude model id works. An optional **Anthropic** key (`ANTHROPIC_API_KEY`, Settings → Anthropic API Key) lets **Claude Haiku 5.5** step in automatically when the main model fails, so an outage or a retired model never costs formatting. `scripts/benchmark_rewrite.py` compares models on SpeakUp's real prompt
+- **Never loses a dictation** — if clean-up fails the words are pasted unformatted; a silent recording pastes nothing (no invented text); pressing the hotkey again while the previous dictation is still processing is safe — each dictation keeps its own audio and they paste in order
 - **Disfluency Cleanup** — Every mode strips filler words ("um", "uh", "like"), false starts, and repetitions, resolves self-corrections ("Tuesday — no, Wednesday" → "Wednesday"), and adds punctuation/paragraphs — turning a raw transcript into the text you *meant* to write, while preserving your wording and tone
 - **Inline Voice Commands** — Speak formatting instructions and they're applied, not typed: "new paragraph", "bullet that", "numbered list", "scratch that", "quote that", "in caps"
 - **Smart Auto-Format Mode** — Default mode detects the app you're dictating into (chat, email, code editor, document, browser) and matches the right tone and structure automatically — casual in Slack, email shape in Gmail, a code comment in VS Code
@@ -206,7 +208,11 @@ Record (sounddevice) -> Transcribe (Whisper API batch, or live via OpenAI Realti
 
 Live transcription (when enabled) runs the WebSocket on its own thread/loop with a live caption overlay, and always falls back to batch transcription so a dictation is never lost.
 
-If the clean-up (rewrite) step fails, the transcript is still pasted at the cursor, unformatted, with a tray notice saying why - the words were already transcribed, so they are never thrown away. If OpenAI has retired the configured GPT model (as happened to `gpt-4.1-nano` on 2026-10-24), SpeakUp switches `gpt_model` back to the shipped default (`gpt-4o-mini`) so the next dictation is formatted again.
+If the clean-up (rewrite) step fails before any text is typed, the `backup_model` is tried (when its provider's key is set); if that fails too, the transcript is still pasted at the cursor, unformatted, with a tray notice saying why - the words were already transcribed, so they are never thrown away. If the configured model has been retired (as happened to `gpt-4.1-nano` on 2026-10-23), SpeakUp switches `gpt_model` back to the shipped default (`gpt-6-luna`) so the next dictation is formatted again; ids already known to be retired are swapped on load.
+
+Request settings follow the model family (`completion_kwargs` in `src/rewrite/engine.py`): GPT-5 onwards and the o-series get `max_completion_tokens` with reasoning switched off, because they reject `max_tokens`/`temperature` and default reasoning roughly triples time-to-first-word; Claude gets thinking disabled and no temperature.
+
+Each key release snapshots its own live session and audio, and rewrite+paste is serialised, so an overlapping dictation can neither steal the previous one's audio nor interleave its paste.
 
 ### Threading Model
 
@@ -293,7 +299,8 @@ Settings can be changed via the gear icon on the overlay or by editing `config.j
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `gpt_model` | `gpt-4o-mini` | GPT model for rewriting |
+| `gpt_model` | `gpt-6-luna` | Clean-up (rewrite) model — any OpenAI id, or a `claude-*` id with an Anthropic key. Measured 2026-10-24: gpt-6-luna ~0.83 s to first word, $0.12/1000 dictations; gpt-4.1-mini ~0.61 s, $0.45 (shuts down 2027-01-14) |
+| `backup_model` | `claude-haiku-5-5` | Tried when the clean-up model fails before any text is typed; ignored unless its provider's key is set. `""` disables |
 | `whisper_model` | `gpt-4o-transcribe` | Cloud speech model (used when provider=cloud): `gpt-4o-transcribe` (most accurate), `gpt-4o-mini-transcribe` (faster), or legacy `whisper-1` |
 | `temperature` | `0.2` | AI creativity level (0-2); low favours faithful cleanup |
 | `default_rewrite_mode` | `smart` | Mode selected on launch (`smart` auto-formats per active app) |

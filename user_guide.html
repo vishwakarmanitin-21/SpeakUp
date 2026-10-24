@@ -72,7 +72,9 @@
 <table>
 <tr><th>Setting</th><th>What it does</th></tr>
 <tr><td>OpenAI API Key</td><td>Your key. <strong>Show</strong> reveals it, <strong>Test</strong> checks it works.</td></tr>
-<tr><td>GPT Model</td><td>Cleans up your text. <code>gpt-4o-mini</code> (fast) is a good default.</td></tr>
+<tr><td>Clean-up model</td><td>Cleans up your text. <code>gpt-6-luna</code> (cheapest) is the default; <code>gpt-4.1-mini</code> is ~0.2 s faster, costs 4x, and stops working on 14 Jan 2027.</td></tr>
+<tr><td>Anthropic API Key</td><td><em>(Optional)</em> lets Claude clean up, or step in automatically when the main model fails. From console.anthropic.com — a Claude.ai subscription is not an API key.</td></tr>
+<tr><td>Backup model</td><td>Tried when the clean-up model fails. Pick one from a different company.</td></tr>
 <tr><td>Speech Model</td><td><code>gpt-4o-transcribe</code> (most accurate) / <code>gpt-4o-mini-transcribe</code> (faster).</td></tr>
 <tr><td>Default Mode</td><td>Which rewrite style is selected on launch (Smart recommended).</td></tr>
 <tr><td>Output Mode</td><td>Auto-paste at cursor (default), Clipboard, or Preview.</td></tr>
@@ -95,7 +97,7 @@
 <h2>7. Which AI models give the best results?</h2>
 <ul>
 <li><strong>Speech-to-text:</strong> <code>gpt-4o-transcribe</code> — most accurate; <code>gpt-4o-mini-transcribe</code> for speed.</li>
-<li><strong>Cleanup:</strong> <code>gpt-4o-mini</code> — fast and high quality; <code>gpt-4o</code> for maximum polish.</li>
+<li><strong>Cleanup:</strong> <code>gpt-6-luna</code> — cheapest, no announced shutdown, accurate on names; <code>gpt-4.1-mini</code> is ~0.2 s faster but 4x the price and retired 14 Jan 2027. With an Anthropic key, Claude Haiku 5.5 is the automatic backup.</li>
 <li><strong>Live captions / lowest lag:</strong> turn on <strong>Live transcription</strong>; add a <strong>Deepgram</strong> key (section 6) for word-by-word. Either way it falls back automatically if the live path can't connect.</li>
 </ul>
 

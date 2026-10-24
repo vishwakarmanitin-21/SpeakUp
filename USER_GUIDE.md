@@ -65,7 +65,9 @@ you can also choose Email, LinkedIn Post, PRD, Structured Notes, and more.
 | Setting | What it does |
 |---|---|
 | **OpenAI API Key** | Your key. Use **Show** to reveal it, **Test** to check it works. |
-| **GPT Model** | The model that cleans up your text. `gpt-4o-mini` (fast) is a good default. |
+| **Clean-up model** | The model that cleans up your text. `gpt-6-luna` (cheapest) is the default; `gpt-4.1-mini` is about a fifth of a second faster but costs 4x and stops working on 14 Jan 2027. |
+| **Anthropic API Key** | *(Optional)* lets Claude clean up your text, or step in automatically when the main model fails. Get it from console.anthropic.com — a Claude.ai subscription is not an API key. |
+| **Backup model** | Tried when the clean-up model fails. Pick one from a different company, so one outage can't stop both. |
 | **Speech Model** | `gpt-4o-transcribe` (most accurate) / `gpt-4o-mini-transcribe` (faster). |
 | **Default Mode** | Which rewrite style is selected on launch (Smart recommended). |
 | **Output Mode** | Auto-paste at cursor (default), Clipboard, or Preview window. |
@@ -104,8 +106,10 @@ SpeakUp uses OpenAI for the cleanup and (by default) the speech-to-text. Recomme
 
 - **Speech-to-text:** `gpt-4o-transcribe` — the most accurate, best for long or
   technical speech. Switch to `gpt-4o-mini-transcribe` if you prefer speed/lower cost.
-- **Cleanup/formatting:** `gpt-4o-mini` — fast, cheap, and high quality for this task.
-  Use `gpt-4o` if you want maximum polish on important writing (a little slower).
+- **Cleanup/formatting:** `gpt-6-luna` — the cheapest, with no announced shutdown date,
+  and as accurate on names as the faster options. `gpt-4.1-mini` starts typing about
+  0.2 s sooner but costs 4x and is retired on 14 Jan 2027. With an Anthropic key,
+  **Claude Haiku 5.5** is the automatic backup.
 - **Lowest lag / live captions:** turn on **Live transcription**; add a **Deepgram**
   key (section 6) for the smooth word-by-word caption. Either way, if the live path
   can't connect, SpeakUp falls back to the standard mode automatically.
