@@ -301,6 +301,23 @@ Settings can be changed via the gear icon on the overlay or by editing `config.j
 |---------|---------|-------------|
 | `gpt_model` | `gpt-6-luna` | Clean-up (rewrite) model — any OpenAI id, or a `claude-*` id with an Anthropic key. Measured 2026-10-24: gpt-6-luna ~0.83 s to first word, $0.12/1000 dictations; gpt-4.1-mini ~0.61 s, $0.45 (shuts down 2027-01-14) |
 | `backup_model` | `claude-haiku-5-5` | Tried when the clean-up model fails before any text is typed; ignored unless its provider's key is set. `""` disables |
+| `max_recording_seconds` | `300` | A recording is stopped and processed at this length (0 = no cap). Also, while you hold the hotkey, SpeakUp checks every 150 ms that the keys are really down, so a release Windows swallowed (lock screen, sleep) can't leave the mic on |
+
+`ANTHROPIC_WORKSPACE_ID` (in `.env`, or Settings → Anthropic workspace ID) is only needed for an Anthropic key created at the organisation level rather than inside a workspace — Anthropic refuses such a key unless each request names the workspace.
+
+Live captions connect to whichever Deepgram endpoint (US or EU) answers faster from your machine, measured once at startup; from India the EU endpoint opens the connection ~0.4 s sooner with the same transcript and billing.
+
+## What it costs
+
+Each dictation is billed in two parts, and **length matters — mostly through the first one**:
+
+| Part | Billed by | Typical dictation (7 s, 14 words) | Long dictation (60 s, ~150 words) |
+|---|---|---|---|
+| Speech-to-text (Deepgram nova-3 live, ~$0.0048/min) | **seconds of audio**, pauses included | ~$0.0005 | ~$0.0048 |
+| Clean-up (gpt-6-luna, $0.10 / $0.50 per 1M tokens) | **tokens**: a fixed ~1,000-token instruction + dictionary, plus ~1 token per word in and out | ~$0.0001 | ~$0.0002 |
+| **Total** | | **~$0.0006** | **~$0.005** |
+
+So a long dictation costs roughly in proportion to its length, while a short one never drops below the clean-up's fixed ~$0.0001. Measured 2026-10-24: the clean-up's input was 1,014 tokens for 10 words and 1,261 for 250 words. On the author's real usage (20 dictations a day, median 7 s, ~5 minutes of speech a day) that is about **$0.75 a month**, ~90% of it speech-to-text — the clean-up model choice moves the total by cents. The app's own estimate is under tray → Usage.
 | `whisper_model` | `gpt-4o-transcribe` | Cloud speech model (used when provider=cloud): `gpt-4o-transcribe` (most accurate), `gpt-4o-mini-transcribe` (faster), or legacy `whisper-1` |
 | `temperature` | `0.2` | AI creativity level (0-2); low favours faithful cleanup |
 | `default_rewrite_mode` | `smart` | Mode selected on launch (`smart` auto-formats per active app) |
