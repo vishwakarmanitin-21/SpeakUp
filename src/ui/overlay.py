@@ -349,7 +349,8 @@ class OverlayWidget(QWidget):
             # Too short — discard silently to avoid "audio too short" API errors
             logger.info("Recording too short (%.2fs), discarded", elapsed)
             self._is_recording = False
-            self._pipeline.cancel()
+            # Only this tap — a dictation still being processed carries on.
+            self._pipeline.discard_recording()
             self._caption.hide_caption()
             self._mic_btn.set_state("idle")
             self._status.set_state("idle")
@@ -398,7 +399,9 @@ class OverlayWidget(QWidget):
             self._status.set_state("error", msg)
             logger.error("Pipeline failed: %s", e, exc_info=True)
         finally:
-            self._caption.hide_caption()
+            # A newer dictation may already be showing its live caption.
+            if not self._is_recording:
+                self._caption.hide_caption()
 
     def rerun_last(self, mode) -> None:
         """Re-run the last dictation through `mode` (triggered from the tray)."""
@@ -430,6 +433,11 @@ class OverlayWidget(QWidget):
 
     def _on_pipeline_state(self, state: str) -> None:
         """Update UI based on pipeline state changes."""
+        # An earlier dictation finishing while the key is held for the next one
+        # must not touch the UI: clearing _is_recording here made the release
+        # be ignored, so the new dictation was never processed.
+        if self._is_recording and state != PipelineState.RECORDING:
+            return
         state_map = {
             PipelineState.IDLE: ("idle", "idle"),
             PipelineState.RECORDING: ("recording", "listening"),

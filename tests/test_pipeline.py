@@ -17,17 +17,22 @@ def _make_pipeline():
     ):
         from src.services.pipeline import Pipeline
         pipeline = Pipeline()
+    # Never the user's real settings: with live transcription on, a test that
+    # calls start_recording() would open the real microphone and Deepgram.
+    pipeline._config = MagicMock(transcription_realtime=False, auto_stop_on_silence=False)
     return pipeline
 
 
-def test_cancel_sets_cancelled_flag():
-    """cancel() sets _cancelled to True and resets state to IDLE."""
+def test_cancel_cancels_in_flight_runs():
+    """cancel() marks every pending run cancelled and resets state to IDLE."""
     from src.services.pipeline import PipelineState
 
     pipeline = _make_pipeline()
     pipeline._recorder.is_recording = False
+    pipeline.stop_recording()
+    gen = pipeline._pending_take.cancel_gen
     pipeline.cancel()
-    assert pipeline._cancelled is True
+    assert pipeline._is_cancelled(gen)
     assert pipeline.state == PipelineState.IDLE
 
 
@@ -39,12 +44,88 @@ def test_cancel_stops_active_recording():
     pipeline._recorder.stop.assert_called_once()
 
 
-def test_start_recording_resets_cancelled_flag():
-    """start_recording() clears _cancelled before starting."""
+def test_new_recording_after_cancel_is_not_cancelled():
     pipeline = _make_pipeline()
-    pipeline._cancelled = True
+    pipeline.cancel()
     pipeline.start_recording()
-    assert pipeline._cancelled is False
+    pipeline.stop_recording()
+    assert not pipeline._is_cancelled(pipeline._pending_take.cancel_gen)
+
+
+def test_discarding_a_short_tap_does_not_cancel_the_previous_dictation():
+    pipeline = _make_pipeline()
+    pipeline.stop_recording()
+    gen = pipeline._pending_take.cancel_gen
+    pipeline.start_recording()
+    pipeline.discard_recording()
+    assert not pipeline._is_cancelled(gen)
+
+
+# --- Overlapping dictations (2026-10-24: the second one lost its audio) -------
+
+def _live_session(text):
+    s = MagicMock()
+    s.stop_and_transcribe = AsyncMock(return_value=text)
+    s.live_failed = False
+    return s
+
+
+@pytest.mark.asyncio
+async def test_finishing_dictation_does_not_steal_the_next_ones_live_session():
+    from src.rewrite.modes import RewriteMode
+
+    pipeline = _make_pipeline()
+    pipeline._context_builder.build.return_value = None
+    pipeline._rewriter.rewrite = AsyncMock(side_effect=lambda raw, *a, **k: raw.upper())
+    first, second = _live_session("first"), _live_session("second")
+
+    pipeline._realtime, pipeline._use_realtime = first, True
+    pipeline.stop_recording()          # release #1
+    first.close.assert_called_once()   # mic stopped at release, not later
+    pipeline._realtime, pipeline._use_realtime = second, True  # press #2
+
+    with patch("src.services.pipeline.Config", return_value=_fake_config(stream=False)):
+        raw, _ = await pipeline.process(RewriteMode.CLEAN_GRAMMAR, output_mode="clipboard")
+
+    assert raw == "first"
+    assert pipeline._realtime is second and pipeline._use_realtime  # untouched
+    second.stop_and_transcribe.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_overlapping_dictations_paste_one_after_the_other():
+    """Two runs in flight never interleave their streamed pastes."""
+    import asyncio
+    from src.rewrite.modes import RewriteMode
+
+    pipeline = _make_pipeline()
+    pipeline._context_builder.build.return_value = None
+    events: list[str] = []
+    pipeline._inserter.begin_stream.side_effect = lambda: events.append("begin")
+    pipeline._inserter.end_stream.side_effect = lambda: events.append("end")
+
+    async def slow_stream(raw, *a, **k):
+        for word in (raw, " done"):
+            await asyncio.sleep(0.01)
+            yield word
+    pipeline._rewriter.rewrite_stream = slow_stream
+
+    takes = []
+    for text in ("one", "two"):
+        pipeline._realtime, pipeline._use_realtime = _live_session(text), True
+        pipeline.stop_recording()
+        takes.append(pipeline._pending_take)
+        pipeline._pending_take = None
+
+    async def run(take):
+        pipeline._pending_take = take
+        return await pipeline.process(RewriteMode.CLEAN_GRAMMAR)
+
+    with patch("src.services.pipeline.Config", return_value=_fake_config()):
+        results = await asyncio.gather(run(takes[0]), run(takes[1]))
+
+    assert sorted(r[0] for r in results) == ["one", "two"]
+    assert events == ["begin", "end", "begin", "end"]
 
 
 @pytest.mark.asyncio

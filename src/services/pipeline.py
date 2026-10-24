@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
-from typing import Callable
+from dataclasses import dataclass
+from typing import Any, Callable
 
 logger = logging.getLogger("speakup")
 
@@ -27,6 +29,18 @@ class PipelineState:
     ERROR = "error"
 
 
+@dataclass
+class _Take:
+    """Everything one dictation needs after the key is released."""
+
+    realtime: Any            # live transcriber session, or None for batch
+    wav_bytes: bytes | None  # batch audio
+    wav_error: Exception | None
+    record_started_at: float | None
+    active_app: tuple[str, str]
+    cancel_gen: int
+
+
 class Pipeline:
     """Orchestrates the voice -> text -> rewrite -> output pipeline."""
 
@@ -43,7 +57,12 @@ class Pipeline:
         self._state = PipelineState.IDLE
         self._on_state_change: Callable[[str], None] | None = None
         self._on_silence_detected: Callable[[], None] | None = None
-        self._cancelled = False
+        # cancel() bumps this; a run is cancelled when its take's value is stale.
+        # Per-run (not a shared bool) so a new dictation can't un-cancel an old one.
+        self._cancel_gen = 0
+        self._pending_take: _Take | None = None
+        # Serialises rewrite+paste so overlapping dictations never interleave.
+        self._output_lock = asyncio.Lock()
         # Active app at dictation time — drives Smart-mode formatting.
         self._active_app: tuple[str, str] = ("", "general")
         # Experimental realtime (transcribe-while-speaking) state.
@@ -145,7 +164,6 @@ class Pipeline:
             pass
 
     def start_recording(self) -> None:
-        self._cancelled = False
         # Speech-to-text is billed per minute of AUDIO, so the recording's real
         # length is what determines cost — not the word count it produced.
         self._record_started_at = time.monotonic()
@@ -205,11 +223,45 @@ class Pipeline:
             self._recorder.start()
 
     def stop_recording(self) -> None:
-        self._recorder.stop()
+        """End capture and hand this dictation its own snapshot (_Take).
 
-    def cancel(self) -> None:
-        """Cancel the current pipeline run and stop recording if active."""
-        self._cancelled = True
+        The next hotkey press may start a new recording while this one is still
+        being transcribed. Detaching everything process() needs here keeps the
+        two runs from overwriting each other's live session and audio — seen
+        2026-10-24, when the second run lost its audio entirely.
+        """
+        self._recorder.stop()
+        self._pending_take = self._take_snapshot()
+
+    def _take_snapshot(self) -> _Take:
+        realtime = self._realtime if self._use_realtime else None
+        self._realtime = None
+        self._use_realtime = False
+        wav_bytes, wav_error = None, None
+        if realtime is not None:
+            try:
+                realtime.close()  # stop the mic now; the transcript is awaited later
+            except Exception:
+                pass
+        else:
+            try:
+                wav_bytes = self._recorder.get_wav_bytes()
+            except Exception as e:  # e.g. no audio — raised again in process()
+                wav_error = e
+        return _Take(
+            realtime=realtime,
+            wav_bytes=wav_bytes,
+            wav_error=wav_error,
+            record_started_at=self._record_started_at,
+            active_app=self._active_app,
+            cancel_gen=self._cancel_gen,
+        )
+
+    def discard_recording(self) -> None:
+        """Drop the CURRENT recording only (e.g. a too-short tap).
+
+        Unlike cancel(), a dictation already being processed keeps going.
+        """
         if self._recorder.is_recording:
             self._recorder.stop()
         if self._realtime is not None:
@@ -217,9 +269,18 @@ class Pipeline:
                 self._realtime.close()
             except Exception:
                 pass
-            self._realtime = None
-            self._use_realtime = False
+        self._realtime = None
+        self._use_realtime = False
+
+    def cancel(self) -> None:
+        """Cancel every in-flight run and stop recording if active."""
+        self._cancel_gen += 1
+        self._pending_take = None
+        self.discard_recording()
         self._set_state(PipelineState.IDLE)
+
+    def _is_cancelled(self, gen: int) -> bool:
+        return gen != self._cancel_gen
 
     async def process(
         self,
@@ -235,11 +296,13 @@ class Pipeline:
         Returns:
             Tuple of (raw_transcription, rewritten_text).
         """
-        self._cancelled = False
+        take = self._pending_take or self._take_snapshot()
+        self._pending_take = None
+        gen = take.cancel_gen
         _start = time.monotonic()
         # How long the mic was actually open — the billable quantity for STT.
         _audio_seconds = (
-            _start - self._record_started_at if self._record_started_at else None
+            _start - take.record_started_at if take.record_started_at else None
         )
         config = Config()
         logger.info(
@@ -249,36 +312,31 @@ class Pipeline:
         try:
             # 1. Build context from clipboard, selection, session memory, VS Code
             context = self._context_builder.build()
-            if self._cancelled:
+            if self._is_cancelled(gen):
                 self._set_state(PipelineState.IDLE)
                 return "", ""
 
             # 2. Transcribe — realtime (experimental) or batch (cloud/local)
             self._set_state(PipelineState.TRANSCRIBING)
-            if self._use_realtime and self._realtime is not None:
+            if take.realtime is not None:
                 # start() never raises and stop_and_transcribe() falls back to the
                 # standard cloud path internally, so live transcription can't lose
                 # a dictation. A genuine error (e.g. network fully down) propagates
                 # to the outer handler below.
-                live_failed = False
-                try:
-                    raw_text = await self._realtime.stop_and_transcribe()
-                    # Only a genuine connect/session failure counts — a short or
-                    # silent clip that returns no segments is NOT "unavailable".
-                    live_failed = bool(getattr(self._realtime, "live_failed", False))
-                finally:
-                    self._use_realtime = False
-                    self._realtime = None
-                if live_failed:
+                raw_text = await take.realtime.stop_and_transcribe()
+                # Only a genuine connect/session failure counts — a short or
+                # silent clip that returns no segments is NOT "unavailable".
+                if getattr(take.realtime, "live_failed", False):
                     self._notify("Live transcription unavailable — used standard mode.")
             else:
                 # If live was requested but couldn't start, this batch path IS the
                 # silent fallback — surface a quiet hint so it's never mysterious.
                 if self._config.transcription_realtime:
                     self._notify("Live transcription unavailable — used standard mode.")
-                wav_bytes = self._recorder.get_wav_bytes()
+                if take.wav_error is not None:
+                    raise take.wav_error
                 whisper = get_transcription_client()
-                raw_text = await whisper.transcribe(wav_bytes)
+                raw_text = await whisper.transcribe(take.wav_bytes)
             logger.info("Transcription: %d words (%d chars)", len(raw_text.split()), len(raw_text))
             # Repair dictionary terms the transcriber mis-heard or split into
             # other words ("west or a" -> "Vestora") BEFORE the rewrite, so the
@@ -292,77 +350,24 @@ class Pipeline:
                 logger.info("RAW TRANSCRIPT: %r", raw_text)
             if raw_text.strip():
                 self._last_raw_text = raw_text  # cache for "re-run in another mode"
-            if self._cancelled:
+            if self._is_cancelled(gen):
                 self._set_state(PipelineState.IDLE)
                 return "", ""
 
-            # 3. Rewrite — stream-and-type for auto-paste (low perceived latency),
-            #    otherwise generate the full text for clipboard/preview delivery.
-            self._set_state(PipelineState.REWRITING)
-            effective_output = output_mode or config.output_mode
-            stream_output = (
-                config.stream_output and effective_output == OutputMode.AUTO_PASTE
-            )
-
-            # A failed clean-up must never lose the dictation: the words were
-            # already transcribed, so deliver them unformatted instead.
-            rewrite_error: RewriteError | None = None
-            partial = False
-            if stream_output:
-                chunks: list[str] = []
-                first_token = False
-                self._inserter.begin_stream()
-                try:
-                    try:
-                        async for delta in self._rewriter.rewrite_stream(
-                            raw_text, mode, context, app_hint=self._active_app
-                        ):
-                            if self._cancelled:
-                                break
-                            if not first_token:
-                                first_token = True
-                                # Time-to-first-word from key-release — this is the
-                                # latency the user actually perceives (text appears).
-                                logger.info(
-                                    "First word after %d ms",
-                                    int((time.monotonic() - _start) * 1000),
-                                )
-                            chunks.append(delta)
-                            self._inserter.feed_stream(delta)
-                    except RewriteError as e:
-                        rewrite_error = e
-                        # Only when nothing was typed yet — after a mid-stream
-                        # failure the raw text would duplicate what is there.
-                        partial = bool(chunks)
-                        if not chunks and raw_text.strip() and not self._cancelled:
-                            chunks.append(raw_text)
-                            self._inserter.feed_stream(raw_text)
-                finally:
-                    self._inserter.end_stream()
-                rewritten = "".join(chunks)
-            else:
-                try:
-                    rewritten = await self._rewriter.rewrite(
-                        raw_text, mode, context, app_hint=self._active_app
-                    )
-                except RewriteError as e:
-                    rewrite_error = e
-                    rewritten = raw_text
-            if rewrite_error is not None:
-                if not raw_text.strip():
-                    raise rewrite_error
-                self._recover_from_rewrite_error(rewrite_error, config, partial)
-            logger.info("Rewrite: %d words (%d chars)", len(rewritten.split()), len(rewritten))
-            if self._cancelled:
+            # 3-5. Rewrite + deliver, one dictation at a time: transcription of
+            # overlapping dictations can run in parallel, but their text must
+            # reach the cursor in order and never interleave in the paste stream.
+            async with self._output_lock:
+                if self._is_cancelled(gen):
+                    self._set_state(PipelineState.IDLE)
+                    return "", ""
+                rewritten = await self._rewrite_and_deliver(
+                    raw_text, mode, context, take.active_app, output_mode,
+                    config, gen, _start,
+                )
+            if self._is_cancelled(gen):
                 self._set_state(PipelineState.IDLE)
                 return "", ""
-
-            # 4. Store in session memory
-            self._session_memory.add(raw_text, rewritten, mode.value)
-
-            # 5. Deliver output (streaming already typed it at the cursor)
-            if not stream_output:
-                self._inserter.deliver(rewritten, output_mode)
 
             # 6. Record usage analytics (non-blocking, best-effort)
             if config.track_usage:
@@ -398,6 +403,87 @@ class Pipeline:
             self._set_state(PipelineState.ERROR)
             raise
 
+    async def _rewrite_and_deliver(
+        self,
+        raw_text: str,
+        mode: RewriteMode,
+        context: str | None,
+        app_hint: tuple[str, str],
+        output_mode: str | None,
+        config: Config,
+        gen: int,
+        start: float,
+    ) -> str:
+        """Rewrite raw_text, put it at the cursor (or clipboard/preview), and
+        record it in session memory. Returns the delivered text.
+
+        Stream-and-type for auto-paste (low perceived latency), otherwise the
+        full text is generated first. A failed clean-up never loses the
+        dictation: the words were already transcribed, so they are delivered
+        unformatted instead.
+        """
+        self._set_state(PipelineState.REWRITING)
+        effective_output = output_mode or config.output_mode
+        stream_output = (
+            config.stream_output and effective_output == OutputMode.AUTO_PASTE
+        )
+
+        rewrite_error: RewriteError | None = None
+        partial = False
+        if stream_output:
+            chunks: list[str] = []
+            first_token = False
+            self._inserter.begin_stream()
+            try:
+                try:
+                    async for delta in self._rewriter.rewrite_stream(
+                        raw_text, mode, context, app_hint=app_hint
+                    ):
+                        if self._is_cancelled(gen):
+                            break
+                        if not first_token:
+                            first_token = True
+                            # Time-to-first-word from key-release — this is the
+                            # latency the user actually perceives (text appears).
+                            logger.info(
+                                "First word after %d ms",
+                                int((time.monotonic() - start) * 1000),
+                            )
+                        chunks.append(delta)
+                        self._inserter.feed_stream(delta)
+                except RewriteError as e:
+                    rewrite_error = e
+                    # Only when nothing was typed yet — after a mid-stream
+                    # failure the raw text would duplicate what is there.
+                    partial = bool(chunks)
+                    if not chunks and raw_text.strip() and not self._is_cancelled(gen):
+                        chunks.append(raw_text)
+                        self._inserter.feed_stream(raw_text)
+            finally:
+                self._inserter.end_stream()
+            rewritten = "".join(chunks)
+        else:
+            try:
+                rewritten = await self._rewriter.rewrite(
+                    raw_text, mode, context, app_hint=app_hint
+                )
+            except RewriteError as e:
+                rewrite_error = e
+                rewritten = raw_text
+        if rewrite_error is not None:
+            if not raw_text.strip():
+                raise rewrite_error
+            self._recover_from_rewrite_error(rewrite_error, config, partial)
+        logger.info("Rewrite: %d words (%d chars)", len(rewritten.split()), len(rewritten))
+        if self._is_cancelled(gen):
+            return rewritten
+
+        self._session_memory.add(raw_text, rewritten, mode.value)
+        # Streaming already typed it at the cursor.
+        if not stream_output:
+            self._inserter.deliver(rewritten, output_mode)
+        return rewritten
+
     async def rerun_last(
         self, mode: RewriteMode, output_mode: str | None = None
     ) -> tuple[str, str]:
@@ -410,7 +496,7 @@ class Pipeline:
         if not raw_text:
             return "", ""
 
-        self._cancelled = False
+        gen = self._cancel_gen
         config = Config()
         # Deliver to wherever the cursor is now; re-detect the app for Smart mode.
         try:
@@ -420,30 +506,11 @@ class Pipeline:
             app_hint = self._active_app
 
         try:
-            self._set_state(PipelineState.REWRITING)
-            effective_output = output_mode or config.output_mode
-            stream_output = (
-                config.stream_output and effective_output == OutputMode.AUTO_PASTE
-            )
-            if stream_output:
-                chunks: list[str] = []
-                self._inserter.begin_stream()
-                try:
-                    async for delta in self._rewriter.rewrite_stream(
-                        raw_text, mode, None, app_hint=app_hint
-                    ):
-                        chunks.append(delta)
-                        self._inserter.feed_stream(delta)
-                finally:
-                    self._inserter.end_stream()
-                rewritten = "".join(chunks)
-            else:
-                rewritten = await self._rewriter.rewrite(
-                    raw_text, mode, None, app_hint=app_hint
+            async with self._output_lock:
+                rewritten = await self._rewrite_and_deliver(
+                    raw_text, mode, None, app_hint, output_mode,
+                    config, gen, time.monotonic(),
                 )
-                self._inserter.deliver(rewritten, output_mode)
-
-            self._session_memory.add(raw_text, rewritten, mode.value)
             logger.info("Re-run: mode=%s, %d words", mode.value, len(rewritten.split()))
             self._set_state(PipelineState.DONE)
             return raw_text, rewritten
