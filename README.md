@@ -305,7 +305,9 @@ Settings can be changed via the gear icon on the overlay or by editing `config.j
 
 `ANTHROPIC_WORKSPACE_ID` (in `.env`, or Settings → Anthropic workspace ID) is only needed for an Anthropic key created at the organisation level rather than inside a workspace — Anthropic refuses such a key unless each request names the workspace.
 
-Live captions connect to whichever Deepgram endpoint (US or EU) answers faster from your machine, measured once at startup; from India the EU endpoint opens the connection ~0.4 s sooner with the same transcript and billing.
+Live captions connect to whichever Deepgram endpoint (US or EU) answers faster from your machine, measured once at startup; from India the EU endpoint opens the connection ~0.4 s sooner with the same transcript and billing. After each dictation a connection is kept warm for 5 minutes (0.1 s of silence, then keep-alive pings — Deepgram bills audio, so ~2 s a day), so the next dictation's captions start in ~30 ms instead of ~1 s. If a connection still isn't up 1.5 s after release, the recorded audio goes straight to standard transcription instead of waiting.
+
+Pasting goes through the Windows clipboard API directly (`src/output/clipboard_win.py`): everything you had copied — text, images, files, rich text — is put back afterwards; SpeakUp's own chunks are kept out of Win+V history and cloud clipboard sync; and if another app is holding the clipboard, the words are typed instead of dropped.
 
 ## What it costs
 
