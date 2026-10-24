@@ -46,6 +46,10 @@ def friendly_api_error(exc: Exception, action: str) -> str:
     sends you off debugging the wrong thing.
     """
     text = str(exc).lower()
+    if "not scoped to a workspace" in text:
+        return (f"{action} failed: your Anthropic key isn't inside a workspace. "
+                "Create the key inside a workspace at console.anthropic.com, or "
+                "add the workspace ID in Settings.")
     if is_model_unavailable(text):
         return f"{action} failed: OpenAI has retired or does not offer this model."
     if any(k in text for k in ("insufficient_quota", "credit_balance_exhausted",

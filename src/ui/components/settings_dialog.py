@@ -108,6 +108,17 @@ class SettingsDialog(QDialog):
         )
         api_layout.addRow("Anthropic API Key:", self._anthropic_key_input)
 
+        self._anthropic_ws_input = QLineEdit()
+        self._anthropic_ws_input.setPlaceholderText(
+            "only if your key isn't inside a workspace — wrkspc_..."
+        )
+        self._anthropic_ws_input.setToolTip(
+            "Leave empty for a key created inside a workspace (the usual case).\n"
+            "A key created at the organisation level needs the workspace to bill:\n"
+            "console.anthropic.com > Settings > Workspaces > copy the workspace ID."
+        )
+        api_layout.addRow("Anthropic workspace ID:", self._anthropic_ws_input)
+
         self._backup_model_combo = QComboBox()
         self._backup_model_combo.setEditable(True)
         self._backup_model_combo.addItem("None", "")
@@ -546,6 +557,7 @@ class SettingsDialog(QDialog):
         self._api_key_input.setText(os.getenv("OPENAI_API_KEY", ""))
         self._deepgram_key_input.setText(os.getenv("DEEPGRAM_API_KEY", ""))
         self._anthropic_key_input.setText(os.getenv("ANTHROPIC_API_KEY", ""))
+        self._anthropic_ws_input.setText(os.getenv("ANTHROPIC_WORKSPACE_ID", ""))
 
         backup = self._config.backup_model
         idx = self._backup_model_combo.findData(backup)
@@ -770,6 +782,10 @@ class SettingsDialog(QDialog):
             new_anthropic = self._anthropic_key_input.text().strip()
             if new_anthropic != os.getenv("ANTHROPIC_API_KEY", ""):
                 self._set_env_var("ANTHROPIC_API_KEY", new_anthropic)
+
+            new_ws = self._anthropic_ws_input.text().strip()
+            if new_ws != os.getenv("ANTHROPIC_WORKSPACE_ID", ""):
+                self._set_env_var("ANTHROPIC_WORKSPACE_ID", new_ws)
 
             self.accept()
         except Exception as e:

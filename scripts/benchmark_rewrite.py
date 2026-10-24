@@ -66,6 +66,16 @@ DEFAULT_MODELS = ["gpt-6-luna", "gpt-4o-mini", "gpt-4.1-mini", "gpt-5.4-nano",
                   "claude-haiku-5-5"]
 
 
+def _load_installed_app_keys() -> None:
+    import os
+
+    from dotenv import load_dotenv
+
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        load_dotenv(Path(appdata) / "SpeakUp" / ".env", override=False)
+
+
 def _prompt(raw: str, vocab: list[str]) -> str:
     return build_user_prompt(RewriteMode.SMART, raw, None,
                              app_hint=("Notepad", "general"), vocabulary=vocab)
@@ -115,6 +125,9 @@ async def main() -> None:
     # can't encode them.
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
+    # Keys typed into the installed app's Settings live in %APPDATA%\SpeakUp\.env,
+    # not the repo's .env — read both (the repo's wins).
+    _load_installed_app_keys()
     config = Config()
     vocab = config.custom_vocabulary or TERMS
     models = [m.strip() for m in args.models.split(",") if m.strip()]
@@ -124,8 +137,14 @@ async def main() -> None:
             if not config.anthropic_api_key:
                 print(f"skip {m}: ANTHROPIC_API_KEY not set")
                 continue
+            import os
+
             from anthropic import AsyncAnthropic
-            clients[m] = AsyncAnthropic(api_key=config.anthropic_api_key, max_retries=0)
+            ws = os.getenv("ANTHROPIC_WORKSPACE_ID", "").strip()
+            clients[m] = AsyncAnthropic(
+                api_key=config.anthropic_api_key, max_retries=0,
+                default_headers={"anthropic-workspace-id": ws} if ws else None,
+            )
         else:
             from openai import AsyncOpenAI
             clients[m] = AsyncOpenAI(api_key=config.openai_api_key, max_retries=0)

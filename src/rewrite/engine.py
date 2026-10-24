@@ -84,7 +84,7 @@ class RewriteEngine:
         self._client: AsyncOpenAI | None = None
         self._client_key: str | None = None
         self._claude_client = None
-        self._claude_key: str | None = None
+        self._claude_key: tuple[str, str] | None = None
         self._last_warm = 0.0
 
     # --- Background worker (dedicated loop) ---
@@ -242,14 +242,20 @@ class RewriteEngine:
 
     def _get_claude_client(self, api_key: str):
         """Persistent Anthropic client on the worker loop (same reasons as OpenAI)."""
-        if self._claude_client is not None and self._claude_key == api_key:
+        # A key created at the organisation level (not inside a workspace) is
+        # rejected unless every request names the workspace to bill.
+        workspace = os.getenv("ANTHROPIC_WORKSPACE_ID", "").strip()
+        if self._claude_client is not None and self._claude_key == (api_key, workspace):
             return self._claude_client
         from anthropic import AsyncAnthropic
 
+        headers = {"anthropic-workspace-id": workspace} if workspace else None
         # One retry only: this sits on the paste path, where a long retry
         # chain is worse than falling back to the unformatted transcript.
-        self._claude_client = AsyncAnthropic(api_key=api_key, max_retries=1, timeout=30.0)
-        self._claude_key = api_key
+        self._claude_client = AsyncAnthropic(
+            api_key=api_key, max_retries=1, timeout=30.0, default_headers=headers
+        )
+        self._claude_key = (api_key, workspace)
         return self._claude_client
 
     # --- Helpers ---
