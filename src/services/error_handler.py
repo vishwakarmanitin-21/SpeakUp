@@ -25,6 +25,19 @@ class RecordingError(SpeakUpError):
     pass
 
 
+def is_model_unavailable(exc: Exception | str) -> bool:
+    """True when OpenAI rejected the MODEL itself (retired or unknown id).
+
+    A retired model can still appear in models.list() while every call to it
+    404s (gpt-4.1-nano, 2026-10-24), so this error text is the only reliable
+    signal that the configured model is dead.
+    """
+    text = str(exc).lower()
+    return "model_not_found" in text or (
+        "model" in text and ("has been deprecated" in text or "does not exist" in text)
+    )
+
+
 def friendly_api_error(exc: Exception, action: str) -> str:
     """A message that names the ACTUAL problem.
 
@@ -33,6 +46,8 @@ def friendly_api_error(exc: Exception, action: str) -> str:
     sends you off debugging the wrong thing.
     """
     text = str(exc).lower()
+    if is_model_unavailable(text):
+        return f"{action} failed: OpenAI has retired or does not offer this model."
     if any(k in text for k in ("insufficient_quota", "credit_balance_exhausted",
                                "no credits remaining", "exceeded your current quota")):
         # Plain ASCII: this text is also written to the console logger, which on

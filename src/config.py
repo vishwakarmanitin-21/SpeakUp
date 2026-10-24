@@ -91,6 +91,10 @@ class Config:
             return self._defaults[key]
         return fallback
 
+    def default(self, key: str, fallback=None):
+        """The shipped default for `key`, ignoring the user's override."""
+        return self._defaults.get(key, fallback)
+
     def reload(self) -> None:
         """Reload config from disk (call after settings change to hot-reload)."""
         self._load()

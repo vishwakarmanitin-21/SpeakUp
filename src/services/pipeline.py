@@ -14,6 +14,7 @@ from src.context.session_memory import SessionMemory
 from src.output.inserter import OutputInserter, OutputMode
 from src.rewrite.engine import RewriteEngine
 from src.rewrite.modes import RewriteMode
+from src.services.error_handler import RewriteError, is_model_unavailable
 from src.transcription.factory import get_transcription_client
 
 
@@ -91,6 +92,37 @@ class Pipeline:
                 self._on_notice(message)
             except Exception:
                 pass
+
+    def _recover_from_rewrite_error(
+        self, exc: RewriteError, config: Config, partial: bool = False
+    ) -> None:
+        """Explain a clean-up failure, and switch away from a retired model.
+
+        OpenAI retires models without notice (gpt-4.1-nano, 2026-10-24); left
+        alone, every later dictation would fail the same way.
+        """
+        logger.warning(
+            "Rewrite failed%s: %s",
+            " part-way; kept the text already typed" if partial
+            else ", delivered the unformatted transcript", exc,
+        )
+        outcome = (
+            "Clean-up stopped part-way through." if partial
+            else "Pasted your words without clean-up."
+        )
+        model = config.gpt_model
+        default = config.default("gpt_model")
+        # Only switch TO a different model — if the default itself is retired,
+        # switching would just loop.
+        if is_model_unavailable(exc) and default and model != default:
+            config.save_user_overrides({"gpt_model": default})
+            logger.warning("Clean-up model %r is unavailable; switched to %r", model, default)
+            self._notify(
+                f"OpenAI retired the clean-up model '{model}'. Switched to "
+                f"'{default}' for your next dictation. {outcome}"
+            )
+        else:
+            self._notify(f"{outcome} {exc.user_message}")
 
     def _set_state(self, state: str) -> None:
         self._state = state
@@ -272,33 +304,54 @@ class Pipeline:
                 config.stream_output and effective_output == OutputMode.AUTO_PASTE
             )
 
+            # A failed clean-up must never lose the dictation: the words were
+            # already transcribed, so deliver them unformatted instead.
+            rewrite_error: RewriteError | None = None
+            partial = False
             if stream_output:
                 chunks: list[str] = []
                 first_token = False
                 self._inserter.begin_stream()
                 try:
-                    async for delta in self._rewriter.rewrite_stream(
-                        raw_text, mode, context, app_hint=self._active_app
-                    ):
-                        if self._cancelled:
-                            break
-                        if not first_token:
-                            first_token = True
-                            # Time-to-first-word from key-release — this is the
-                            # latency the user actually perceives (text appears).
-                            logger.info(
-                                "First word after %d ms",
-                                int((time.monotonic() - _start) * 1000),
-                            )
-                        chunks.append(delta)
-                        self._inserter.feed_stream(delta)
+                    try:
+                        async for delta in self._rewriter.rewrite_stream(
+                            raw_text, mode, context, app_hint=self._active_app
+                        ):
+                            if self._cancelled:
+                                break
+                            if not first_token:
+                                first_token = True
+                                # Time-to-first-word from key-release — this is the
+                                # latency the user actually perceives (text appears).
+                                logger.info(
+                                    "First word after %d ms",
+                                    int((time.monotonic() - _start) * 1000),
+                                )
+                            chunks.append(delta)
+                            self._inserter.feed_stream(delta)
+                    except RewriteError as e:
+                        rewrite_error = e
+                        # Only when nothing was typed yet — after a mid-stream
+                        # failure the raw text would duplicate what is there.
+                        partial = bool(chunks)
+                        if not chunks and raw_text.strip() and not self._cancelled:
+                            chunks.append(raw_text)
+                            self._inserter.feed_stream(raw_text)
                 finally:
                     self._inserter.end_stream()
                 rewritten = "".join(chunks)
             else:
-                rewritten = await self._rewriter.rewrite(
-                    raw_text, mode, context, app_hint=self._active_app
-                )
+                try:
+                    rewritten = await self._rewriter.rewrite(
+                        raw_text, mode, context, app_hint=self._active_app
+                    )
+                except RewriteError as e:
+                    rewrite_error = e
+                    rewritten = raw_text
+            if rewrite_error is not None:
+                if not raw_text.strip():
+                    raise rewrite_error
+                self._recover_from_rewrite_error(rewrite_error, config, partial)
             logger.info("Rewrite: %d words (%d chars)", len(rewritten.split()), len(rewritten))
             if self._cancelled:
                 self._set_state(PipelineState.IDLE)
