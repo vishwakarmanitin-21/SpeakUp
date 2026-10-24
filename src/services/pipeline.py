@@ -353,6 +353,14 @@ class Pipeline:
             if self._is_cancelled(gen):
                 self._set_state(PipelineState.IDLE)
                 return "", ""
+            # Nothing was said: a clean-up model handed an empty transcript
+            # invents text (or echoes session memory) and it gets pasted —
+            # 4 times in the log before 2026-10-24.
+            if not any(ch.isalnum() for ch in raw_text):
+                logger.info("No speech in this recording; nothing pasted")
+                self._notify("No speech heard - nothing was pasted. Check your microphone.")
+                self._set_state(PipelineState.DONE)
+                return raw_text, ""
 
             # 3-5. Rewrite + deliver, one dictation at a time: transcription of
             # overlapping dictations can run in parallel, but their text must

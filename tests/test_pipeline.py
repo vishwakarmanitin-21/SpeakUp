@@ -258,3 +258,18 @@ async def test_retired_default_model_does_not_loop():
 
     cfg.save_user_overrides.assert_not_called()
     assert rewritten == "hello world"
+
+
+@pytest.mark.asyncio
+async def test_silent_recording_pastes_nothing():
+    """An empty transcript must never reach the clean-up model or the cursor."""
+    pipeline = _make_pipeline()
+    pipeline._rewriter.rewrite_stream = MagicMock()
+    pipeline._realtime, pipeline._use_realtime = _live_session(" . "), True
+    pipeline.stop_recording()
+    raw, rewritten = await _process(pipeline, _fake_config())
+
+    assert rewritten == ""
+    pipeline._rewriter.rewrite_stream.assert_not_called()
+    pipeline._inserter.begin_stream.assert_not_called()
+
