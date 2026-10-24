@@ -206,6 +206,8 @@ Record (sounddevice) -> Transcribe (Whisper API batch, or live via OpenAI Realti
 
 Live transcription (when enabled) runs the WebSocket on its own thread/loop with a live caption overlay, and always falls back to batch transcription so a dictation is never lost.
 
+If the clean-up (rewrite) step fails, the transcript is still pasted at the cursor, unformatted, with a tray notice saying why - the words were already transcribed, so they are never thrown away. If OpenAI has retired the configured GPT model (as happened to `gpt-4.1-nano` on 2026-10-24), SpeakUp switches `gpt_model` back to the shipped default (`gpt-4o-mini`) so the next dictation is formatted again.
+
 ### Threading Model
 
 - **Qt main thread**: All UI + asyncio coroutines (via qasync)
