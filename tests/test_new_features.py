@@ -896,3 +896,44 @@ async def test_connected_deepgram_waits_for_its_live_result(monkeypatch):
 def test_deepgram_handshake_has_a_short_timeout():
     from src.transcription import deepgram_client as dg
     assert dg._OPEN_TIMEOUT_S <= 3.0
+
+
+# --- Deepgram warm connection (p49) -------------------------------------------
+
+class _FakeWs:
+    def __init__(self, close_code=None):
+        self.close_code = close_code
+
+
+def test_warm_socket_is_handed_over_once_for_the_same_url():
+    from src.transcription.deepgram_client import _WarmLink
+
+    link = _WarmLink()
+    ws = _FakeWs()
+    link._ws, link._url = ws, "wss://x/v1/listen?a=1"
+    assert link.take("wss://x/v1/listen?a=1") is ws
+    assert link.take("wss://x/v1/listen?a=1") is None   # never shared twice
+
+
+def test_warm_socket_not_used_for_a_different_dictionary_or_endpoint():
+    from src.transcription.deepgram_client import _WarmLink
+
+    link = _WarmLink()
+    link._ws, link._url = _FakeWs(), "wss://x/v1/listen?keyterm=Old"
+    assert link.take("wss://x/v1/listen?keyterm=New") is None
+
+
+def test_closed_warm_socket_is_not_used():
+    from src.transcription.deepgram_client import _WarmLink
+
+    link = _WarmLink()
+    link._ws, link._url = _FakeWs(close_code=1000), "u"
+    assert link.take("u") is None
+
+
+def test_warm_socket_sends_only_a_tenth_of_a_second_of_audio():
+    """Deepgram bills audio sent; the primer must stay tiny."""
+    from src.transcription.deepgram_client import _WarmLink
+
+    assert len(_WarmLink._PRIMER) == 16000 * 2 // 10     # 0.1 s, 16 kHz, 16-bit
+    assert _WarmLink.TTL_S <= 300 and _WarmLink.KEEPALIVE_S < 10

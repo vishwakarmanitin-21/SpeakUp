@@ -129,13 +129,134 @@ def _probe_hosts() -> None:
                 ", ".join(f"{h} {t:.0f} ms" for h, t in timings.items()))
 
 
-def start_endpoint_probe() -> None:
-    """Run _probe_hosts() once, in the background (never on the hotkey path)."""
+def start_endpoint_probe(prime: bool = False) -> None:
+    """Run _probe_hosts() once, in the background (never on the hotkey path).
+
+    prime=True then opens a warm connection to the chosen endpoint.
+    """
     global _probe_started
     if _probe_started:
         return
     _probe_started = True
-    threading.Thread(target=_probe_hosts, daemon=True, name="dg-probe").start()
+
+    def _work() -> None:
+        _probe_hosts()
+        if prime:
+            _warm.prime()
+
+    threading.Thread(target=_work, daemon=True, name="dg-probe").start()
+
+
+class _WarmLink:
+    """One pre-opened Deepgram socket, kept ready between close dictations.
+
+    Opening a socket costs ~0.8 s (EU) to ~1.5 s (US) from this PC; until it
+    is open there are no live captions, and a short dictation released before
+    then waits for it. 55% of this user's dictations start within 5 min of
+    the previous one, so a socket opened after each dictation and kept alive
+    for 5 min usually saves that whole wait.
+
+    Cost: Deepgram bills audio sent, not connection time. A socket that has
+    had no audio is closed by Deepgram, so 0.1 s of silence is sent first,
+    then only KeepAlive. Measured 2026-10-24: a socket held 20 s this way
+    reported 0.1 s of audio in its own end-of-stream metadata.
+    """
+
+    TTL_S = 300.0
+    KEEPALIVE_S = 4.0
+    _PRIMER = bytes(3200)  # 0.1 s of 16 kHz 16-bit silence
+
+    def __init__(self) -> None:
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._lock = threading.Lock()
+        self._ws = None
+        self._url: str | None = None
+        self._expires = 0.0
+        self._priming = False
+
+    @property
+    def loop(self) -> asyncio.AbstractEventLoop:
+        """One long-lived loop for every Deepgram socket (a socket belongs to
+        the loop that opened it, so the warm one and its user must share)."""
+        with self._lock:
+            if self._loop is None:
+                ready = threading.Event()
+
+                def _run() -> None:
+                    self._loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(self._loop)
+                    ready.set()
+                    self._loop.run_forever()
+
+                threading.Thread(target=_run, daemon=True, name="deepgram-loop").start()
+                ready.wait(5.0)
+        return self._loop  # type: ignore[return-value]
+
+    def prime(self) -> None:
+        """Open (or refresh) the warm socket in the background. Thread-safe."""
+        try:
+            asyncio.run_coroutine_threadsafe(self._prime(), self.loop)
+        except Exception:
+            pass
+
+    def _alive(self) -> bool:
+        ws = self._ws
+        return ws is not None and getattr(ws, "close_code", None) is None
+
+    async def _prime(self) -> None:
+        if self._priming:
+            return
+        url = _build_url()
+        loop = asyncio.get_running_loop()
+        if self._alive() and self._url == url:
+            self._expires = loop.time() + self.TTL_S  # still good — extend it
+            return
+        self._priming = True
+        try:
+            await self._close_current()
+            key = Config().deepgram_api_key
+            if not key:
+                return
+            ws = await _ws_connect(url, {"Authorization": f"Token {key}"})
+            await ws.send(self._PRIMER)
+            self._ws, self._url = ws, url
+            self._expires = loop.time() + self.TTL_S
+            asyncio.ensure_future(self._keepalive(ws))
+        except Exception as e:
+            logger.info("Deepgram warm connection skipped: %s", e)
+        finally:
+            self._priming = False
+
+    async def _keepalive(self, ws) -> None:
+        loop = asyncio.get_running_loop()
+        try:
+            while self._ws is ws and loop.time() < self._expires:
+                await asyncio.sleep(self.KEEPALIVE_S)
+                if self._ws is not ws:
+                    return  # taken by a dictation — it owns the socket now
+                await ws.send(json.dumps({"type": "KeepAlive"}))
+        except Exception:
+            pass
+        if self._ws is ws:
+            await self._close_current()
+
+    async def _close_current(self) -> None:
+        ws, self._ws = self._ws, None
+        if ws is not None:
+            try:
+                await ws.close()
+            except Exception:
+                pass
+
+    def take(self, url: str):
+        """Hand over the warm socket if it's open and for this URL (on the loop)."""
+        if not self._alive() or self._url != url:
+            return None
+        ws, self._ws = self._ws, None
+        return ws
+
+
+_warm = _WarmLink()
 
 
 # A healthy connect takes ~0.9-1.4 s (2026-10-24). The library default of 10 s
@@ -167,7 +288,6 @@ class DeepgramTranscriber:
         self._pcm_buffer: list[bytes] = []
         self._active = False
         self._stop = False
-        self._thread: threading.Thread | None = None
         self._result: Future = Future()
         self._connected = threading.Event()
         self._abandoned = False      # release gave up waiting for the connection
@@ -195,17 +315,17 @@ class DeepgramTranscriber:
             samplerate=_SAMPLE_RATE, channels=1, dtype="float32", callback=_cb
         )
         self._mic.start()
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
+        # The session runs on the shared Deepgram loop so it can adopt the
+        # warm socket (sockets are bound to the loop that opened them).
+        fut = asyncio.run_coroutine_threadsafe(self._session(), _warm.loop)
+        fut.add_done_callback(self._session_done)
 
-    def _run(self) -> None:
-        try:
-            asyncio.run(self._session())
-        except Exception as e:  # pragma: no cover
-            logger.warning("Deepgram session thread error: %s", e)
-        finally:
-            if not self._result.done():
-                self._result.set_result(None)
+    def _session_done(self, fut) -> None:
+        exc = fut.exception() if not fut.cancelled() else None
+        if exc is not None:  # pragma: no cover
+            logger.warning("Deepgram session error: %s", exc)
+        if not self._result.done():
+            self._result.set_result(None)
 
     async def _session(self) -> None:
         ws = None
@@ -215,11 +335,17 @@ class DeepgramTranscriber:
             # after the resolver warms up succeeds (same fix as the OpenAI path).
             key = Config().deepgram_api_key
             headers = {"Authorization": f"Token {key}"}
+            url = _build_url()
+            ws = _warm.take(url)
+            if ws is not None:
+                logger.info("Deepgram: using the warm connection")
             for attempt in range(3):
+                if ws is not None:
+                    break
                 if self._abandoned:
                     return  # the dictation already went to batch transcription
                 try:
-                    ws = await _ws_connect(_build_url(), headers)
+                    ws = await _ws_connect(url, headers)
                     break
                 except Exception as e:
                     if attempt < 2 and not self._abandoned:
@@ -311,6 +437,9 @@ class DeepgramTranscriber:
                     await ws.close()
                 except Exception:
                     pass
+            # The next dictation is often close behind: have a socket ready.
+            if not self._abandoned:
+                asyncio.ensure_future(_warm._prime())
 
     def _emit_caption(self, text: str) -> None:
         cb = self._on_caption

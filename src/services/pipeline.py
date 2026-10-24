@@ -96,7 +96,11 @@ class Pipeline:
         if config.deepgram_api_key:
             try:
                 from src.transcription.deepgram_client import start_endpoint_probe
-                start_endpoint_probe()
+                # Also open a warm socket if Deepgram is the live engine.
+                start_endpoint_probe(prime=bool(
+                    config.transcription_realtime
+                    and config.live_engine in ("auto", "deepgram")
+                ))
             except Exception:
                 pass
 
