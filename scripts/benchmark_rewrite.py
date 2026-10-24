@@ -53,6 +53,8 @@ TERMS = ["Vestora", "Prisha", "KFinTech", "CAMS", "SEBI", "AMFI", "WealQuest",
 # USD per 1M tokens (input, output). Checked 2026-10-24 against the providers'
 # pricing pages; re-check before relying on it.
 PRICES = {
+    "gpt-5-nano": (0.05, 0.40),       # cheapest OpenAI text model; shuts down 2026-12-11
+    "gpt-5-mini": (0.25, 2.00),       # shuts down 2026-12-11
     "gpt-6-luna": (0.10, 0.50),
     "claude-haiku-5-5": (0.10, 0.50),
     "gpt-4o-mini": (0.15, 0.60),
@@ -62,8 +64,10 @@ PRICES = {
     "gpt-5.4-mini": (0.75, 4.50),
     "gpt-5.6-luna": (0.20, 1.20),
 }
-DEFAULT_MODELS = ["gpt-6-luna", "gpt-4o-mini", "gpt-4.1-mini", "gpt-5.4-nano",
-                  "claude-haiku-5-5"]
+# Every clean-up model at or near the bottom of the price list on the keys
+# SpeakUp has (OpenAI pricing page checked 2026-10-24).
+DEFAULT_MODELS = ["gpt-5-nano", "gpt-6-luna", "claude-haiku-5-5", "gpt-4o-mini",
+                  "gpt-5.6-luna", "gpt-5.4-nano", "gpt-5-mini", "gpt-4.1-mini"]
 
 
 def _load_installed_app_keys() -> None:
