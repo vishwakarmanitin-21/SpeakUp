@@ -6,6 +6,7 @@
     "hotkey": "ctrl+cmd",
     "sample_rate": 16000,
     "silence_timeout_ms": 2000,
+    "max_recording_seconds": 300,
     "auto_stop_on_silence": false,
     "default_rewrite_mode": "smart",
     "output_mode": "auto_paste",

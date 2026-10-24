@@ -154,6 +154,18 @@ class Config:
         return os.getenv("ANTHROPIC_API_KEY", "").strip()
 
     @property
+    def max_recording_seconds(self) -> int:
+        """Longest single recording before it is stopped and processed (0 = no cap).
+
+        5 min keeps the batch fallback under OpenAI's 25 MB upload limit
+        (16 kHz 16-bit mono is ~1.9 MB a minute) with room to spare.
+        """
+        try:
+            return max(0, int(self._get("max_recording_seconds", 300)))
+        except (TypeError, ValueError):
+            return 300
+
+    @property
     def backup_model(self) -> str:
         """Clean-up model to retry with when the primary fails ('' = none).
 

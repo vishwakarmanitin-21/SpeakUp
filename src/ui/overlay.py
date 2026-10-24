@@ -90,6 +90,15 @@ class OverlayWidget(QWidget):
         self._topmost_timer.timeout.connect(self._keep_on_top)
         self._topmost_timer.start()
 
+        # While recording: catch a missed key release and cap the length. Seen
+        # in the log: 8 recordings of 19 min to 2.6 h (lock screen, sleep or a
+        # desktop switch swallowed the release) — every one of them lost.
+        self._recording_by_hotkey = False
+        self._keys_up_polls = 0
+        self._record_watchdog = QTimer()
+        self._record_watchdog.setInterval(150)
+        self._record_watchdog.timeout.connect(self._check_recording)
+
         self._setup_ui()
         self._connect_signals()
         self._apply_scale()
@@ -287,7 +296,7 @@ class OverlayWidget(QWidget):
         self.setMaximumSize(16777215, 16777215)
 
     def _connect_signals(self) -> None:
-        self.hotkey_pressed.connect(self._start_recording)
+        self.hotkey_pressed.connect(self._start_recording_by_hotkey)
         self.hotkey_released.connect(self._stop_recording_and_process)
         self._mic_btn.clicked.connect(self._toggle_recording)
         self._settings_btn.clicked.connect(self.open_settings)
@@ -328,11 +337,20 @@ class OverlayWidget(QWidget):
     # --- Recording control ---
 
     @pyqtSlot()
-    def _start_recording(self) -> None:
+    def _start_recording_by_hotkey(self) -> None:
+        self._start_recording(by_hotkey=True)
+
+    @pyqtSlot()
+    def _start_recording(self, by_hotkey: bool = False) -> None:
         logger.info("_start_recording called (is_recording=%s)", self._is_recording)
         if self._is_recording:
             return
         self._is_recording = True
+        # Only a held hotkey can be checked for a missed release; a mic-button
+        # recording has no keys down by design.
+        self._recording_by_hotkey = by_hotkey
+        self._keys_up_polls = 0
+        self._record_watchdog.start()
         self._recording_start = time.monotonic()
         self._caption.hide_caption()  # clear any stale caption
         self._mic_btn.set_state("recording")
@@ -344,6 +362,7 @@ class OverlayWidget(QWidget):
         logger.info("_stop_recording_and_process called (is_recording=%s)", self._is_recording)
         if not self._is_recording:
             return
+        self._record_watchdog.stop()
         elapsed = time.monotonic() - self._recording_start
         if elapsed < self._MIN_RECORDING_SECS:
             # Too short — discard silently to avoid "audio too short" API errors
@@ -361,6 +380,44 @@ class OverlayWidget(QWidget):
         self._mic_btn.set_state("processing")
         self._status.set_state("processing")
         asyncio.ensure_future(self._run_pipeline())
+
+    # Consecutive 150 ms polls with the keys up before acting: ~0.45 s, so a
+    # momentary misread can't cut a dictation short.
+    _KEYS_UP_POLLS_TO_STOP = 3
+
+    def _check_recording(self) -> None:
+        """Watchdog: stop (and process) a recording whose release was missed,
+        or one that has run past the length cap."""
+        if not self._is_recording:
+            self._record_watchdog.stop()
+            return
+        elapsed = time.monotonic() - self._recording_start
+        cap = self._config.max_recording_seconds
+        if cap and elapsed >= cap:
+            logger.warning("Recording hit the %ds cap; processing it", cap)
+            self.notice_updated.emit(
+                f"Recording stopped at the {cap // 60}-minute limit - processing what you said."
+            )
+            self._finish_missed_release()
+            return
+        if not self._recording_by_hotkey or self._hotkey_listener is None:
+            return
+        held = self._hotkey_listener.keys_physically_down()
+        if held is False:
+            self._keys_up_polls += 1
+            if self._keys_up_polls >= self._KEYS_UP_POLLS_TO_STOP:
+                logger.warning(
+                    "Hotkey release was missed (keys up for %d polls); stopping after %.1fs",
+                    self._keys_up_polls, elapsed,
+                )
+                self._finish_missed_release()
+        else:
+            self._keys_up_polls = 0
+
+    def _finish_missed_release(self) -> None:
+        if self._hotkey_listener is not None:
+            self._hotkey_listener.reset_state()  # so the next press starts cleanly
+        self._stop_recording_and_process()
 
     def _toggle_recording(self) -> None:
         """Toggle recording via mic button click."""

@@ -35,6 +35,32 @@ def _parse_hotkey(hotkey_str: str) -> set:
     return keys
 
 
+# Windows virtual-key codes per hotkey key. Generic codes (either side) for
+# modifiers, because _normalize_key folds left and right together.
+_VK_ANY_SIDE: dict = {
+    keyboard.Key.ctrl_l: (0x11,),          # VK_CONTROL
+    keyboard.Key.shift: (0x10,),           # VK_SHIFT
+    keyboard.Key.alt_l: (0x12,),           # VK_MENU
+    keyboard.Key.cmd: (0x5B, 0x5C),        # VK_LWIN, VK_RWIN
+    keyboard.Key.space: (0x20,),
+    keyboard.Key.tab: (0x09,),
+    keyboard.Key.enter: (0x0D,),
+}
+
+
+def _vk_codes(key) -> tuple[int, ...]:
+    if key in _VK_ANY_SIDE:
+        return _VK_ANY_SIDE[key]
+    vk = getattr(key, "vk", None)
+    if vk is None and getattr(key, "char", None):
+        import ctypes
+        fn = ctypes.windll.user32.VkKeyScanW
+        fn.restype = ctypes.c_short  # -1 = no key produces this character
+        scan = fn(key.char)
+        vk = scan & 0xFF if scan != -1 else None
+    return (vk,) if vk else ()
+
+
 def _normalize_key(key: keyboard.Key | keyboard.KeyCode) -> keyboard.Key | keyboard.KeyCode:
     """Normalize a key so left/right modifier variants match."""
     if isinstance(key, keyboard.Key):
@@ -123,6 +149,26 @@ class HotkeyListener:
         if self._listener is not None:
             self._listener.stop()
             self._listener = None
+
+    def keys_physically_down(self) -> bool | None:
+        """Ask Windows whether every hotkey key is held RIGHT NOW.
+
+        The press/release events can be lost (lock screen, desktop switch,
+        sleep, the Windows key's own shortcuts); the async key state can't.
+        Returns None when it can't be determined (not Windows / no code).
+        """
+        try:
+            import ctypes
+            get = ctypes.windll.user32.GetAsyncKeyState
+        except Exception:
+            return None
+        for key in self._hotkey_keys:
+            codes = _vk_codes(key)
+            if not codes:
+                return None
+            if not any(get(vk) & 0x8000 for vk in codes):
+                return False
+        return True
 
     def reset_state(self) -> None:
         """Reset pressed keys and active flag.

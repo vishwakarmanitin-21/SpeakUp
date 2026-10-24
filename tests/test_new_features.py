@@ -711,3 +711,53 @@ def test_claude_requests_switch_thinking_off_and_send_no_temperature():
     assert kw["thinking"] == {"type": "disabled"}
     assert "temperature" not in kw
     assert is_claude("claude-haiku-5-5") and not is_claude("gpt-6-luna")
+
+
+# --------------------------------------------------------------------------- #
+# Recording watchdog (2026-10-24: 8 recordings of 19 min - 2.6 h were lost)
+# --------------------------------------------------------------------------- #
+
+def _watchdog_self(held, elapsed=10.0, by_hotkey=True, cap=300):
+    import time
+    from unittest.mock import MagicMock
+    from src.ui.overlay import OverlayWidget
+
+    me = MagicMock()
+    me._is_recording = True
+    me._recording_start = time.monotonic() - elapsed
+    me._config.max_recording_seconds = cap
+    me._recording_by_hotkey = by_hotkey
+    me._hotkey_listener.keys_physically_down.return_value = held
+    me._keys_up_polls = 0
+    me._KEYS_UP_POLLS_TO_STOP = OverlayWidget._KEYS_UP_POLLS_TO_STOP
+    return me, OverlayWidget._check_recording
+
+
+def test_missed_release_is_processed_after_consecutive_keys_up_polls():
+    me, check = _watchdog_self(held=False)
+    check(me)
+    check(me)
+    me._finish_missed_release.assert_not_called()   # not on a single misread
+    check(me)
+    me._finish_missed_release.assert_called_once()
+
+
+def test_keys_still_held_never_stops_the_recording():
+    me, check = _watchdog_self(held=True)
+    for _ in range(10):
+        check(me)
+    me._finish_missed_release.assert_not_called()
+
+
+def test_mic_button_recording_is_not_checked_for_held_keys():
+    me, check = _watchdog_self(held=False, by_hotkey=False)
+    for _ in range(10):
+        check(me)
+    me._finish_missed_release.assert_not_called()
+
+
+def test_recording_past_the_cap_is_processed_with_a_notice():
+    me, check = _watchdog_self(held=True, elapsed=301, cap=300)
+    check(me)
+    me._finish_missed_release.assert_called_once()
+    assert "5-minute" in me.notice_updated.emit.call_args[0][0]
