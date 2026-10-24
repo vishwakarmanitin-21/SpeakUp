@@ -317,7 +317,7 @@ Each dictation is billed in two parts, and **length matters — mostly through t
 | Clean-up (gpt-6-luna, $0.10 / $0.50 per 1M tokens) | **tokens**: a fixed ~1,000-token instruction + dictionary, plus ~1 token per word in and out | ~$0.0001 | ~$0.0002 |
 | **Total** | | **~$0.0006** | **~$0.005** |
 
-So a long dictation costs roughly in proportion to its length, while a short one never drops below the clean-up's fixed ~$0.0001. Measured 2026-10-24: the clean-up's input was 1,014 tokens for 10 words and 1,261 for 250 words. On the author's real usage (20 dictations a day, median 7 s, ~5 minutes of speech a day) that is about **$0.75 a month**, ~90% of it speech-to-text — the clean-up model choice moves the total by cents. The app's own estimate is under tray → Usage.
+So a long dictation costs roughly in proportion to its length, while a short one never drops below the clean-up's fixed ~$0.0001. Measured 2026-10-24: the clean-up's input was 1,014 tokens for 10 words and 1,261 for 250 words. On the author's real usage (20 dictations a day, median 7 s, ~5 minutes of speech a day) that is about **$0.75 a month**, ~90% of it speech-to-text — the clean-up model choice moves the total by cents. The app's own running estimate is under tray → **Usage & cost…**.
 | `whisper_model` | `gpt-4o-transcribe` | Cloud speech model (used when provider=cloud): `gpt-4o-transcribe` (most accurate), `gpt-4o-mini-transcribe` (faster), or legacy `whisper-1` |
 | `temperature` | `0.2` | AI creativity level (0-2); low favours faithful cleanup |
 | `default_rewrite_mode` | `smart` | Mode selected on launch (`smart` auto-formats per active app) |
