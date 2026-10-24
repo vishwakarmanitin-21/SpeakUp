@@ -518,20 +518,51 @@ def test_flush_boundaries():
 
 
 class _FakeClip:
+    """Stand-in for src.output.clipboard_win: formats + a sequence number."""
+
+    class ClipboardBusy(RuntimeError):
+        pass
+
+    TEXT, IMAGE = 13, 8
+
     def __init__(self, val=""):
-        self.clip = val
-        self.copies = []
+        self.formats: dict[int, bytes] = {self.TEXT: val.encode()} if val else {}
+        self.seq = 1
+        self.writes: list[str] = []
+        self.busy = False
 
-    def paste(self):
+    @property
+    def clip(self) -> str:
+        return self.formats.get(self.TEXT, b"").decode()
+
+    def snapshot(self):
+        return dict(self.formats)
+
+    def restore(self, saved):
+        self.formats = dict(saved)
+        self.seq += 1
+
+    def set_text(self, text, private=True):
+        if self.busy:
+            raise self.ClipboardBusy("busy")
+        self.formats = {self.TEXT: text.encode()}
+        self.writes.append(text)
+        self.seq += 1
+        return self.seq
+
+    def copy(self, text):  # another app (or the user) copying something
+        self.formats = {self.TEXT: text.encode()}
+        self.seq += 1
+
+    def sequence(self):
+        return self.seq
+
+    def get_text(self):
         return self.clip
-
-    def copy(self, v):
-        self.clip = v
-        self.copies.append(v)
 
 
 def _make_inserter(monkeypatch, fake_clip):
-    monkeypatch.setattr("src.output.inserter.pyperclip", fake_clip)
+    monkeypatch.setattr("src.output.inserter.clip", fake_clip)
     from src.output.inserter import OutputInserter
     return OutputInserter()
 
@@ -553,11 +584,11 @@ def test_stream_preserves_order(monkeypatch):
 
 
 def _stub_paste(inst, fake):
-    """Stand-in for OutputInserter._paste: writes the clipboard and records what
-    we last put there (the real method does both), but touches no keyboard."""
-    def _paste(chunk):
-        fake.copy(chunk)
-        inst._last_pasted = chunk
+    """Stand-in for OutputInserter._paste: writes the clipboard and records our
+    sequence number (the real method does both), but touches no keyboard."""
+    def _paste(chunk, private=True):
+        inst._last_seq = fake.set_text(chunk, private)
+        return True
     return _paste
 
 
@@ -584,6 +615,24 @@ def test_stream_restores_clipboard(monkeypatch):
     inst.end_stream()             # schedules the guarded restore
 
     assert _wait_for(lambda: fake.clip == "ORIGINAL"), f"got {fake.clip!r}"
+
+
+def test_copied_image_survives_a_dictation(monkeypatch):
+    """A non-text clipboard (image, file) must come back intact.
+
+    pyperclip read it as "" and the restore then WIPED the user's copy.
+    """
+    monkeypatch.setattr("src.output.inserter._RESTORE_DELAY_S", 0.02)
+    fake = _FakeClip()
+    fake.formats = {_FakeClip.IMAGE: b"\x89PNG-ish pixels"}
+    inst = _make_inserter(monkeypatch, fake)
+    inst._paste = _stub_paste(inst, fake)
+
+    inst.begin_stream()
+    inst.feed_stream("Dictated over an image. ")
+    inst.end_stream()
+
+    assert _wait_for(lambda: fake.formats == {_FakeClip.IMAGE: b"\x89PNG-ish pixels"}), fake.formats
 
 
 def test_restore_is_delayed_not_immediate(monkeypatch):
@@ -643,6 +692,34 @@ def test_restore_skipped_when_another_app_takes_clipboard(monkeypatch):
     import time as _t
     _t.sleep(1.2)                             # well past the restore delay
     assert fake.clip == "USER COPIED SOMETHING ELSE"
+
+
+def test_busy_clipboard_types_the_chunk_instead_of_dropping_it(monkeypatch):
+    """A chunk whose clipboard write fails is typed, never skipped (2 losses in the log)."""
+    fake = _FakeClip("ORIGINAL")
+    inst = _make_inserter(monkeypatch, fake)
+    typed: list[str] = []
+    inst._type_text = typed.append
+    inst._keyboard = type("K", (), {"press": lambda *a: None, "release": lambda *a: None})()
+    fake.busy = True
+
+    assert inst._paste("words that must not vanish") is False
+    assert typed == ["words that must not vanish"]
+
+
+def test_keep_on_clipboard_leaves_the_whole_dictation(monkeypatch):
+    """With keep_on_clipboard the full text stays, not just the last chunk."""
+    fake = _FakeClip("ORIGINAL")
+    inst = _make_inserter(monkeypatch, fake)
+    inst._config = type("C", (), {"keep_on_clipboard": True, "output_mode": "auto_paste"})()
+    inst._paste = _stub_paste(inst, fake)
+
+    inst.begin_stream()
+    for ch in "First clause, second clause here now. ":
+        inst.feed_stream(ch)
+    inst.end_stream()
+
+    assert fake.clip == "First clause, second clause here now. "
 
 
 # --------------------------------------------------------------------------- #

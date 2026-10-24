@@ -5,10 +5,10 @@ import queue
 import threading
 import time
 
-import pyperclip
 from pynput.keyboard import Controller, Key
 
 from src.config import Config
+from src.output import clipboard_win as clip
 
 logger = logging.getLogger("speakup")
 
@@ -27,15 +27,25 @@ class OutputMode:
 
 
 class OutputInserter:
-    """Delivers rewritten text to the user."""
+    """Delivers rewritten text to the user.
+
+    The clipboard goes through clipboard_win, not pyperclip: pyperclip only
+    sees plain text, so a copied image or file read back as "" and was then
+    "restored" as "" — wiping the user's copy. clipboard_win keeps every
+    format, keeps SpeakUp's transient chunks out of Win+V history, and
+    retries while another app briefly holds the clipboard.
+    """
 
     def __init__(self) -> None:
         self._config = Config()
         self._keyboard = Controller()
         self._stream_buffer = ""
         self._first_chunk_done = False
-        self._saved_clipboard: str | None = None
-        self._last_pasted: str | None = None  # guards the clipboard restore
+        self._saved_clipboard: dict[int, bytes] | None = None
+        # Clipboard sequence number after OUR last write — the restore only
+        # happens if nothing has written the clipboard since.
+        self._last_seq: int | None = None
+        self._streamed: list[str] = []
         # Background paste worker (set up per streaming run)
         self._paste_queue: queue.Queue | None = None
         self._paste_worker: threading.Thread | None = None
@@ -56,12 +66,9 @@ class OutputInserter:
         try:
             if mode == OutputMode.AUTO_PASTE:
                 self._auto_paste(text)
-            elif mode == OutputMode.CLIPBOARD:
-                self._copy_to_clipboard(text)
-            elif mode == OutputMode.PREVIEW:
-                # Preview is handled by the UI layer
-                self._copy_to_clipboard(text)
             else:
+                # Clipboard mode, and preview (shown by the UI layer): the user
+                # asked for it on the clipboard, so let history keep it.
                 self._copy_to_clipboard(text)
         except Exception as e:
             logger.error("Output delivery failed: %s", e, exc_info=True)
@@ -69,31 +76,19 @@ class OutputInserter:
         return mode
 
     def _auto_paste(self, text: str) -> None:
-        """Copy to clipboard, simulate Ctrl+V, then restore the prior clipboard.
+        """Paste at the cursor, then put the user's clipboard back.
 
-        Pasting requires the text on the clipboard momentarily. Unless the user
-        has opted to keep it (keep_on_clipboard), we snapshot the previous
-        clipboard and put it back afterwards so dictation doesn't clobber it.
+        Unless the user opted to keep the text (keep_on_clipboard), every
+        format they had copied is snapshotted and restored afterwards.
         """
         keep = self._config.keep_on_clipboard
-        previous = ""
-        if not keep:
-            try:
-                previous = pyperclip.paste()
-            except Exception:
-                previous = ""
+        saved = None if keep else clip.snapshot()
+        if not self._paste(text, private=not keep):
+            return  # typed instead — the clipboard was never touched
+        if not keep and saved is not None:
+            self._restore_clipboard_later(saved, self._last_seq)
 
-        pyperclip.copy(text)
-        time.sleep(0.05)
-        self._keyboard.press(Key.ctrl)
-        self._keyboard.press("v")
-        self._keyboard.release("v")
-        self._keyboard.release(Key.ctrl)
-
-        if not keep:
-            self._restore_clipboard_later(previous, text)
-
-    def _restore_clipboard_later(self, previous: str, ours: str) -> None:
+    def _restore_clipboard_later(self, saved: dict[int, bytes], our_seq: int | None) -> None:
         """Put the user's clipboard back, once pending pastes have certainly landed.
 
         Restoring too early is what made dictation paste the user's OLD clipboard
@@ -101,10 +96,11 @@ class OutputInserter:
         had already sent could read the clipboard AFTER we restored it. Two guards:
 
         1. Wait a generous delay (on a background thread, so no added latency).
-        2. Only restore if the clipboard still holds what WE put there — if
-           something else has taken it over since, leave it alone.
+        2. Only restore if nothing has written the clipboard since OUR last
+           write (sequence number) — if something else has taken it over,
+           leave it alone.
         """
-        if ours is None:
+        if our_seq is None:
             # Nothing was ever put on the clipboard, so it was never clobbered —
             # restoring would blindly overwrite whatever the user has since copied.
             return
@@ -112,27 +108,34 @@ class OutputInserter:
         def _worker() -> None:
             time.sleep(_RESTORE_DELAY_S)
             try:
-                if pyperclip.paste() != ours:
+                if clip.sequence() != our_seq:
                     return  # another app owns the clipboard now — don't fight it
-                pyperclip.copy(previous)
-            except Exception:
-                logger.warning("Could not restore previous clipboard contents")
+                clip.restore(saved)
+            except Exception as e:
+                logger.warning("Could not restore previous clipboard contents: %s", e)
 
         threading.Thread(target=_worker, daemon=True).start()
 
     def _copy_to_clipboard(self, text: str) -> None:
         """Just copy to clipboard."""
-        pyperclip.copy(text)
+        clip.set_text(text, private=False)
 
-    def _paste(self, text: str) -> None:
-        """Put text on the clipboard and send Ctrl+V (atomic, no dropped chars).
+    def _paste(self, text: str, private: bool = True) -> bool:
+        """Put text on the clipboard and send Ctrl+V. Never drops the text.
 
+        Returns True if it went through the clipboard, False if the clipboard
+        stayed busy through every retry and the text was typed instead (a
+        failed chunk used to be logged and skipped, losing those words).
         The two short sleeps guard against the clipboard not being set before
         Ctrl+V (would paste stale text) and the next chunk overwriting before
-        this paste is consumed. Kept minimal for snappy streaming.
+        this paste is consumed.
         """
-        pyperclip.copy(text)
-        self._last_pasted = text
+        try:
+            self._last_seq = clip.set_text(text, private=private)
+        except clip.ClipboardBusy as e:
+            logger.warning("Clipboard busy (%s); typing %d chars instead", e, len(text))
+            self._type_text(text)
+            return False
         time.sleep(0.025)
         self._keyboard.press(Key.ctrl)
         self._keyboard.press("v")
@@ -141,6 +144,21 @@ class OutputInserter:
         # Give the target app time to CONSUME this paste before the next chunk
         # overwrites the clipboard, or it would insert the wrong chunk.
         time.sleep(_CHUNK_SETTLE_S)
+        return True
+
+    def _type_text(self, text: str) -> None:
+        """Type text as Unicode key events — the no-clipboard fallback.
+
+        Line breaks go in as Shift+Enter: a bare Enter would SEND the message
+        in chat apps.
+        """
+        for i, line in enumerate(text.split("\n")):
+            if i:
+                with self._keyboard.pressed(Key.shift):
+                    self._keyboard.press(Key.enter)
+                    self._keyboard.release(Key.enter)
+            if line:
+                self._keyboard.type(line)
 
     # --- Streaming output (background paste thread: overlaps with generation) ---
 
@@ -154,13 +172,11 @@ class OutputInserter:
         """
         self._stream_buffer = ""
         self._first_chunk_done = False
+        self._last_seq = None
+        self._streamed = []
         self._saved_clipboard = None
-        self._last_pasted = None
         if not self._config.keep_on_clipboard:
-            try:
-                self._saved_clipboard = pyperclip.paste()
-            except Exception:
-                self._saved_clipboard = None
+            self._saved_clipboard = clip.snapshot()
         self._paste_queue = queue.Queue()
         self._paste_worker = threading.Thread(target=self._paste_loop, daemon=True)
         self._paste_worker.start()
@@ -188,10 +204,19 @@ class OutputInserter:
         self._paste_worker = None
         self._paste_queue = None
 
-        if not self._config.keep_on_clipboard and self._saved_clipboard is not None:
+        if self._config.keep_on_clipboard:
+            # The user wants the dictation kept: the WHOLE text, not just the
+            # last chunk, and visible in clipboard history.
+            if self._streamed:
+                time.sleep(_CHUNK_SETTLE_S)
+                try:
+                    clip.set_text("".join(self._streamed), private=False)
+                except Exception as e:
+                    logger.warning("Could not leave the dictation on the clipboard: %s", e)
+        elif self._saved_clipboard is not None:
             # Delayed + guarded: the final Ctrl+V may still be pending, and
             # restoring underneath it would paste the OLD clipboard instead.
-            self._restore_clipboard_later(self._saved_clipboard, self._last_pasted)
+            self._restore_clipboard_later(self._saved_clipboard, self._last_seq)
         self._saved_clipboard = None
 
     def _enqueue_chunk(self) -> None:
@@ -213,6 +238,7 @@ class OutputInserter:
                 if chunk is None:  # sentinel
                     return
                 self._paste(chunk)
+                self._streamed.append(chunk)
             except Exception as e:
                 logger.warning("Streaming paste failed: %s", e)
             finally:

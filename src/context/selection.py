@@ -3,8 +3,9 @@ from __future__ import annotations
 import logging
 import time
 
-import pyperclip
 from pynput.keyboard import Controller, Key
+
+from src.output import clipboard_win as clip
 
 logger = logging.getLogger("speakup")
 
@@ -36,15 +37,13 @@ def get_selected_text() -> str | None:
         pass
 
     keyboard = Controller()
-    original_clipboard = ""
-    try:
-        original_clipboard = pyperclip.paste()
-    except Exception:
-        pass
+    # Every format, not just text: a copied image or file must survive this
+    # (pyperclip read those as "" and the "restore" then wiped them).
+    original_clipboard = clip.snapshot()
 
     try:
-        # Clear clipboard
-        pyperclip.copy("")
+        # Clear clipboard (kept out of clipboard history)
+        clip.set_text("")
 
         # Simulate Ctrl+C
         keyboard.press(Key.ctrl)
@@ -55,7 +54,7 @@ def get_selected_text() -> str | None:
         # Brief delay for clipboard to update
         time.sleep(0.15)
 
-        selected = pyperclip.paste()
+        selected = clip.get_text()
 
         if selected and selected.strip():
             return selected.strip()
@@ -67,8 +66,10 @@ def get_selected_text() -> str | None:
         logger.debug("Selection capture aborted", exc_info=True)
         return None
     finally:
-        # Restore original clipboard
-        try:
-            pyperclip.copy(original_clipboard)
-        except Exception:
-            pass
+        # Restore original clipboard (if it couldn't be captured, leave the
+        # clipboard alone rather than overwrite it with nothing)
+        if original_clipboard is not None:
+            try:
+                clip.restore(original_clipboard)
+            except Exception:
+                pass
