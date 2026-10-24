@@ -41,6 +41,9 @@ a = Analysis(
         # websockets (live transcription) — imported lazily, list explicitly
         'websockets',
         'websockets.asyncio.client',
+        # Anthropic SDK (Claude clean-up / backup) — imported lazily
+        'anthropic',
+        'httpx2',
         # App modules imported lazily (inside functions) — list so they're bundled
         'src.transcription.realtime_client',
         'src.transcription.deepgram_client',
