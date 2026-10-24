@@ -1,277 +1,2757 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>SpeakUp — Backlog</title>
+<!--
+  SpeakUp's single-file, self-contained backlog dashboard — the one backlog
+  and status tracker for the SpeakUp voice-to-text desktop overlay (README.md
+  is the product's source of truth; this page is where pending work lives).
+  No build step, no external dependencies. Open directly in a browser.
+  The item data is embedded as a JS array (the ITEMS constant) in the
+  <script> block at the bottom — edit there to add / update items.
+
+  History:
+    - 2026-06-27: Requirements.md retired (its backlog moved here) and the
+      Notion mirror retired. This file became the only backlog.
+    - 2026-10-24: rebuilt on the template of Vestora's backlog page
+      (excel-vestor/docs/backlog.html) so both products' backlogs look and
+      work the same: search ("/"), filter chips with counts, sort, group,
+      not-closed matrix, expandable detail, permalinks, keyboard shortcuts,
+      CSV export, localStorage state. Every item, id and note of the old
+      table-style page was carried over unchanged (old short field names
+      t / c / p / s / n became title / category / priority / status /
+      summary). The old per-item status picker is kept, and statuses saved
+      by the old page (localStorage key 'speakup-backlog-' + id) are
+      migrated on load, not dropped.
+
+  Checks (tests/test_backlog.py, part of the pytest suite): the <script>
+  block must parse (node --check), every item needs the required fields and
+  a known status / priority / pillar, ids are unique, and no id listed in
+  backlog-id-baseline.json may disappear — ids are permanent; an item is
+  re-statused (shipped / withdrawn), never deleted.
+
+  North star: feel as good as Wispr Flow, the paid app SpeakUp replaces.
+  Pillars:
+    1. Speed       — low lag from key release to text.
+    2. Accuracy    — the right words, names and formatting.
+    3. Reliability — a dictation is never lost or garbled.
+    4. Effortless  — invisible when it works, clear when it doesn't.
+  Every backlog item maps to one or more pillars; the Pillar filter shows
+  what is in flight against each.
+-->
 <style>
   :root {
-    --accent: #2f8fd0;
-    --accent-soft: #e7f2fb;
-    --bg: #f6f7f9;
-    --card: #ffffff;
-    --ink: #1f2933;
-    --muted: #6b7785;
-    --line: #e3e7ec;
-    --p1: #d64545; --p1-bg: #fbe9e9;
-    --p2: #d08a1e; --p2-bg: #fbf1de;
-    --p3: #6b7785; --p3-bg: #eef1f4;
-    --done: #2e8b57; --done-bg: #e6f4ec;
-    --prog: #2f8fd0; --prog-bg: #e7f2fb;
-    --back: #8a94a0; --back-bg: #eef1f4;
+    --bg: #fafafa;
+    --surface: #ffffff;
+    --border: #e5e7eb;
+    --text: #111827;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --p0: #dc2626;
+    --p1: #ea580c;
+    --p2: #ca8a04;
+    --p3: #6b7280;
+    --parked: #6b7280;
+    --shipped: #16a34a;
+    --open: #2563eb;
+    --blocked: #dc2626;
+    --withdrawn: #9ca3af;
+    --pillar-1: #7c3aed;
+    --pillar-2: #0891b2;
+    --pillar-3: #be185d;
+    --pillar-4: #059669;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --border: #334155;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+    }
   }
   * { box-sizing: border-box; }
   body {
-    margin: 0; font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    background: var(--bg); color: var(--ink); font-size: 14px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    margin: 0;
+    padding: 0;
+    line-height: 1.5;
   }
-  header {
-    background: var(--card); border-bottom: 1px solid var(--line);
-    padding: 20px 28px; display: flex; align-items: center; gap: 14px;
+  .container { max-width: 1200px; margin: 0 auto; padding: 32px 24px; }
+  header h1 { font-size: 28px; margin: 0 0 4px; }
+  header .sub { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
+  header a { color: var(--accent); text-decoration: none; }
+  header a:hover { text-decoration: underline; }
+
+  .status-matrix { border-collapse: collapse; width: 100%; max-width: 720px; font-variant-numeric: tabular-nums; }
+  .status-matrix th, .status-matrix td { padding: 6px 10px; text-align: right; border-bottom: 1px solid var(--border, #e5e7eb); }
+  .status-matrix th:first-child { text-align: left; }
+  .status-matrix thead th { font-size: 12px; font-weight: 600; color: var(--muted); }
+  .status-matrix tr.all th, .status-matrix tr.all td { font-weight: 700; border-top: 2px solid var(--border, #e5e7eb); }
+  .status-matrix td.total { font-weight: 700; }
+  .status-matrix td.zero { color: var(--muted); opacity: 0.5; }
+  .status-matrix .cellbtn { all: unset; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+  .status-matrix .cellbtn:hover, .status-matrix .cellbtn:focus-visible { background: var(--chip-bg, rgba(127,127,127,0.15)); outline: none; }
+  .status-matrix .cellbtn.active { background: var(--accent, #2563eb); color: white; }
+  #stats.stats { display: block; overflow-x: auto; }
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
   }
-  .logo {
-    width: 34px; height: 34px; border-radius: 8px; background: var(--accent);
-    display: grid; place-items: center; color: #fff; font-weight: 700;
+  /* Every NOT-SHIPPED P0 and P1, split by status: one row per priority, one tile
+     per status. Each row sums to its not-shipped total, so none is off the tiles. */
+  .stats-by-status {
+    display: grid;
+    grid-template-columns: 96px repeat(5, minmax(0, 1fr));
+    gap: 8px;
+    margin: -12px 0 24px;
+    align-items: stretch;
   }
-  header h1 { font-size: 18px; margin: 0; }
-  header p { margin: 2px 0 0; color: var(--muted); font-size: 12.5px; }
-  .wrap { max-width: 1100px; margin: 0 auto; padding: 22px 28px 60px; }
-  .stats { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+  .stats-by-status .row-label {
+    display: flex; flex-direction: column; justify-content: center;
+    font-weight: 600; font-size: 13px;
+  }
+  .stats-by-status .row-label .sub { color: var(--muted); font-weight: 400; font-size: 11px; }
+  .stats-by-status .stat { padding: 8px 10px; }
+  .stats-by-status .stat .value { font-size: 20px; }
+  .stats-by-status .stat.zero { opacity: 0.45; }
+  @media (max-width: 720px) {
+    .stats-by-status { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .stats-by-status .row-label { grid-column: 1 / -1; }
+  }
   .stat {
-    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
-    padding: 12px 16px; min-width: 120px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
   }
-  .stat .n { font-size: 22px; font-weight: 700; }
-  .stat .l { color: var(--muted); font-size: 12px; }
-  .controls {
-    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
-    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
-    padding: 12px 14px; margin-bottom: 16px;
+  .stat .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .stat .value { font-size: 24px; font-weight: 600; margin-top: 4px; }
+  .stat.p0 .value { color: var(--p0); }
+  .stat.p1 .value { color: var(--p1); }
+  .stat.shipped .value { color: var(--shipped); }
+
+  .filters {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
   }
-  .controls input, .controls select {
-    padding: 7px 10px; border: 1px solid var(--line); border-radius: 7px;
-    font-size: 13px; background: #fff; color: var(--ink);
+  .filter-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .filter-row:last-child { margin-bottom: 0; }
+  .filter-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; width: 90px; flex-shrink: 0; }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 12px;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.12s;
   }
-  .controls input { flex: 1; min-width: 180px; }
-  .controls .spacer { flex: 1; }
-  .statusFilter {
-    display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap;
-    border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px;
-    background: #fff; font-size: 13px;
+  .chip:hover { border-color: var(--accent); }
+  .chip.active { background: var(--accent); color: white; border-color: var(--accent); }
+  .chip .count { color: var(--muted); font-size: 10px; }
+  .chip.active .count { color: white; opacity: 0.85; }
+  .search-wrap { position: relative; flex: 1; min-width: 200px; }
+  .search {
+    width: 100%;
+    padding: 8px 32px 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+    font-size: 14px;
   }
-  .statusFilter .sfLabel { color: var(--muted); }
-  .statusFilter label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; white-space: nowrap; }
-  .statusFilter input { margin: 0; cursor: pointer; }
-  button.link {
-    background: none; border: none; color: var(--accent); cursor: pointer;
-    font-size: 13px; text-decoration: underline;
+  .search:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .search-clear {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 22px;
+    height: 22px;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    display: none;
+    border-radius: 3px;
   }
-  table { width: 100%; border-collapse: collapse; background: var(--card);
-    border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
-  th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  th { font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); background: #fbfcfd; }
-  tr:last-child td { border-bottom: none; }
-  td.title { font-weight: 600; }
-  td .notes { color: var(--muted); font-weight: 400; font-size: 12.5px; margin-top: 3px; }
-  .badge { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
-  .cat { background: var(--accent-soft); color: var(--accent); }
-  .pri-P1 { background: var(--p1-bg); color: var(--p1); }
-  .pri-P2 { background: var(--p2-bg); color: var(--p2); }
-  .pri-P3 { background: var(--p3-bg); color: var(--p3); }
-  select.status { border: none; border-radius: 20px; padding: 3px 8px; font-size: 11.5px; font-weight: 600; cursor: pointer; }
-  .st-Done { background: var(--done-bg); color: var(--done); }
-  .st-In\ Progress { background: var(--prog-bg); color: var(--prog); }
-  .st-Backlog { background: var(--back-bg); color: var(--back); }
-  .st-Parked { background: #ede9fe; color: #6d28d9; }
-  .empty { text-align: center; color: var(--muted); padding: 40px; }
-  footer { color: var(--muted); font-size: 12px; margin-top: 16px; }
-  tr.done td.title { text-decoration: line-through; text-decoration-color: var(--line); }
+  .search-clear:hover { background: var(--bg); color: var(--text); }
+  .search-wrap.has-text .search-clear { display: block; }
+
+  .toolbar { flex-wrap: wrap; gap: 10px; }
+  .select-wrap { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .select-wrap select {
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+    font-size: 13px;
+  }
+  .select-wrap select:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .action-btn {
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+  .action-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .action-btn.ghost { color: var(--muted); }
+  .action-btn.ghost:hover { color: var(--accent); }
+
+  .items { display: flex; flex-direction: column; gap: 8px; }
+  .item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    transition: border-color 0.12s;
+  }
+  .item:hover { border-color: var(--accent); }
+  .item.shipped { opacity: 0.7; }
+  /* Two ROWS, not one: the id and the tags sit together on top and the title
+     gets a line of its own beneath them (Nitin, 2026-08-24). On one line a long
+     title was squeezed between a fixed-width id and a wrapping block of badges,
+     so the thing you actually read was the narrowest column on the card. */
+  .item-head { display: flex; flex-direction: column; gap: 6px; cursor: pointer; }
+  .item-head-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .item-id {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    background: var(--bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    flex-shrink: 0;
+  }
+  .item-title { font-weight: 500; line-height: 1.35; }
+  /* Click an id or a title to copy it (Nitin, 2026-10-20: paste into chat). */
+  .item-id, .item-title { cursor: copy; }
+  .item-id:hover, .item-title:hover { text-decoration: underline dotted; }
+  .item-meta { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; justify-content: flex-end; }
+  .badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+  .badge.p0 { background: var(--p0); color: white; border-color: var(--p0); }
+  .badge.p1 { background: var(--p1); color: white; border-color: var(--p1); }
+  .badge.p2 { background: var(--p2); color: white; border-color: var(--p2); }
+  .badge.p3 { background: var(--p3); color: white; border-color: var(--p3); }
+  .badge.parked { background: var(--parked); color: white; border-color: var(--parked); }
+  .badge.shipped { background: var(--shipped); color: white; border-color: var(--shipped); }
+  .badge.blocked { background: var(--blocked); color: white; border-color: var(--blocked); }
+  .badge.withdrawn { background: var(--withdrawn); color: white; border-color: var(--withdrawn); }
+  .badge.in-progress { background: var(--open); color: white; border-color: var(--open); }
+  .badge.pillar-1 { background: var(--pillar-1); color: white; border-color: var(--pillar-1); }
+  .badge.pillar-2 { background: var(--pillar-2); color: white; border-color: var(--pillar-2); }
+  .badge.pillar-3 { background: var(--pillar-3); color: white; border-color: var(--pillar-3); }
+  .badge.pillar-4 { background: var(--pillar-4); color: white; border-color: var(--pillar-4); }
+  .badge.kind-feature { background: #dcfce7; color: #166534; border-color: #bbf7d0; }
+  .badge.kind-bug { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+  .badge.kind-chore, .badge.kind-test { background: #e0e7ff; color: #3730a3; border-color: #c7d2fe; }
+  .badge.bucket-issue { background: #fee2e2; color: #991b1b; border-color: #fca5a5; font-weight: 700; }
+  .badge.bucket-enhancement { background: #dcfce7; color: #166534; border-color: #86efac; font-weight: 700; }
+  .badge.bucket-tech { background: #e0e7ff; color: #3730a3; border-color: #a5b4fc; font-weight: 700; }
+  /* A status changed in THIS browser (the old page's per-item status picker,
+     kept through the rebuild). Dashed so it reads as "local, not in the file". */
+  .badge.local-edit { background: transparent; color: var(--accent); border-color: var(--accent); border-style: dashed; }
+  .status-pick {
+    font-size: 12px; padding: 2px 6px; border: 1px solid var(--border); border-radius: 5px;
+    background: var(--surface); color: var(--text);
+  }
+  @media (prefers-color-scheme: dark) {
+    .badge.kind-feature { background: #14532d; color: #bbf7d0; border-color: #166534; }
+    .badge.kind-bug { background: #7f1d1d; color: #fecaca; border-color: #991b1b; }
+    .badge.kind-chore, .badge.kind-test { background: #312e81; color: #c7d2fe; border-color: #4338ca; }
+    .badge.bucket-issue { background: #7f1d1d; color: #fecaca; border-color: #991b1b; }
+    .badge.bucket-enhancement { background: #14532d; color: #bbf7d0; border-color: #166534; }
+    .badge.bucket-tech { background: #312e81; color: #c7d2fe; border-color: #4338ca; }
+  }
+
+  /* Permalink highlight */
+  .item.permalink-highlight {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+  }
+  @keyframes flash {
+    0% { background: rgba(37, 99, 235, 0.18); }
+    100% { background: var(--surface); }
+  }
+  .item.permalink-highlight { animation: flash 1.4s ease-out; }
+
+  /* Group headers */
+  .group-header {
+    margin: 16px 0 6px;
+    padding: 6px 12px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    background: var(--bg);
+    border-radius: 4px;
+    font-weight: 600;
+  }
+  .group-header:first-of-type { margin-top: 0; }
+  .group-header .group-count { color: var(--accent); margin-left: 6px; }
+  .group-header .group-blurb {
+    display: inline;
+    margin-left: 10px;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 400;
+    color: var(--muted);
+    opacity: 0.85;
+  }
+
+  /* Help modal */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    z-index: 100; display: none; align-items: center; justify-content: center;
+    padding: 16px;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal-content {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 20px 24px; max-width: 480px; max-height: 80vh; overflow-y: auto;
+  }
+  .modal-content h3 { margin: 0 0 12px; font-size: 16px; }
+  .modal-content table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .modal-content td { padding: 6px 0; }
+  .modal-content td:first-child { width: 100px; }
+  .modal-content kbd {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11px;
+    padding: 2px 6px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: 3px;
+    color: var(--text);
+  }
+  .modal-close {
+    margin-top: 16px; padding: 6px 14px; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--surface); color: var(--text); cursor: pointer;
+  }
+  .modal-close:hover { border-color: var(--accent); color: var(--accent); }
+
+  mark {
+    background: #fef08a;
+    color: inherit;
+    padding: 0 2px;
+    border-radius: 2px;
+  }
+  @media (prefers-color-scheme: dark) {
+    mark { background: #854d0e; color: #fef3c7; }
+  }
+
+  /* Mobile responsiveness — tablet / large phone */
+  @media (max-width: 720px) {
+    .container { padding: 16px 12px; }
+    header h1 { font-size: 22px; }
+    header .sub { font-size: 13px; margin-bottom: 16px; }
+    .filter-row { flex-direction: column; align-items: flex-start; gap: 6px; }
+    .filter-label { width: auto; }
+    /* Bump chip / button hit-areas — 24px is too small to tap reliably.
+       padding: 8px 12px + 13px line-height → ~36px tall. */
+    .chip { padding: 8px 12px; font-size: 13px; }
+    .action-btn { padding: 8px 12px; font-size: 13px; }
+    .search { padding: 10px 36px 10px 12px; font-size: 14px; }
+    .toolbar { gap: 8px; }
+    .item-meta { justify-content: flex-start; margin-left: 0; }
+    .item { padding: 12px; }
+    .item-body { font-size: 13px; }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .stat .value { font-size: 20px; }
+    .select-wrap { font-size: 11px; }
+    /* Modal must not exceed the viewport on narrow screens. */
+    .modal-content { max-width: calc(100vw - 32px); padding: 16px; }
+    .group-header { font-size: 10px; }
+  }
+  /* Mobile responsiveness — narrow phone (~360-480px) */
+  @media (max-width: 480px) {
+    .container { padding: 12px 10px; }
+    header h1 { font-size: 20px; }
+    .stats { grid-template-columns: 1fr 1fr; }
+    .stat { padding: 10px 12px; }
+    .stat .value { font-size: 18px; }
+    .stat .label { font-size: 10px; }
+    .filters { padding: 12px; }
+    .item { padding: 10px 12px; }
+    .item-body { font-size: 12.5px; }
+  }
+  .item-body {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--text);
+    display: none;
+  }
+  .item.expanded .item-body { display: block; }
+  .item-body h4 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 12px 0 4px; }
+  .item-body p { margin: 4px 0; white-space: pre-wrap; }
+  /* BL-96 plain-language box — sits above the technical detail. */
+  .item-body .plain { border-left: 3px solid var(--accent, #6366f1); background: rgba(99,102,241,0.06); border-radius: 6px; padding: 8px 12px; margin: 0 0 10px; }
+  .item-body .plain p { margin: 2px 0; white-space: normal; font-size: 13.5px; }
+  .item-body .plain .benefit { color: var(--muted); font-size: 12.5px; margin-top: 6px; }
+  .item-body .plain .ifignored { color: #b45309; font-size: 12.5px; margin-top: 6px; }
+  @media (prefers-color-scheme: dark) { .item-body .plain .ifignored { color: #fbbf24; } }
+  .item-body code, .item-body .file {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12px;
+    background: var(--bg);
+    padding: 1px 4px;
+    border-radius: 3px;
+  }
+  .item-body ul { margin: 4px 0; padding-left: 20px; }
+  .item-body .effort { display: inline-block; padding: 2px 6px; background: var(--bg); border-radius: 4px; font-size: 12px; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+
+  .empty {
+    text-align: center;
+    color: var(--muted);
+    padding: 48px 16px;
+    background: var(--surface);
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+  }
+
+  footer { margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+
+  /* Mobile-safety: prevent horizontal scroll from long file paths / URLs /
+     identifiers in item bodies. Applies at all widths — long content can
+     overflow even on desktop. `anywhere` lets the browser break mid-word
+     only when no soft-wrap opportunity exists, so normal prose still
+     wraps at spaces. */
+  .item-title, .item-id, .item-body, .item-body p, .item-body code, .item-body .file {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  body { overflow-x: hidden; }
+
+  /* ─────────────────────────────────────────────────────────────────────
+     Backlog overhaul (2026-07-04): lifecycle dates, dynamic rolling stats,
+     stickier controls + visual polish. Best-in-class scanning.
+     ───────────────────────────────────────────────────────────────────── */
+
+  /* Sticky filter/search bar so controls stay in reach down the long list. */
+  .filters {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    box-shadow: 0 4px 12px -8px rgba(0,0,0,0.25);
+  }
+
+  /* Clickable stat tiles (2026-08-06): a tile that filters must LOOK like it
+     does, or the affordance is a secret. Buttons are reset to match the
+     surrounding .stat divs so the row stays visually uniform whether a tile is
+     interactive or a plain readout. */
+  button.stat {
+    font: inherit; color: inherit; text-align: left; width: 100%;
+    background: var(--card); border: 1px solid var(--border);
+  }
+  .stat.clickable { cursor: pointer; }
+  .stat.clickable:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .stat.clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* The active tile is the one whose set is on screen — it reads as pressed,
+     and clicking it again clears back to everything. */
+  .stat.clickable.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .stat.clickable.active::after {
+    content: '✕'; position: absolute; top: 6px; right: 8px;
+    font-size: 11px; color: var(--muted); line-height: 1;
+  }
+
+  /* Refined stat tiles: a coloured top accent + gentle hover lift. */
+  .stat { position: relative; overflow: hidden; transition: border-color .12s, transform .12s; }
+  .stat::before { content: ''; position: absolute; left: 0; top: 0; height: 3px; width: 100%; background: var(--accent); opacity: .55; }
+  .stat.p0::before { background: var(--p0); opacity: 1; }
+  .stat.p1::before { background: var(--p1); opacity: 1; }
+  .stat.shipped::before { background: var(--shipped); opacity: 1; }
+
+  /* Compact tiles (Nitin, 2026-09-30: "much smaller so the scroll is much less").
+     Label and number share ONE line instead of stacking, which roughly halves
+     every tile row. Placed last so it overrides the older size rules, including
+     the phone-width ones above. */
+  .stats { gap: 6px; margin-bottom: 10px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .stat {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+    padding: 5px 10px 4px; border-radius: 6px;
+  }
+  .stat .label { font-size: 11px; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .stat .value { font-size: 15px; margin-top: 0; line-height: 1.3; flex-shrink: 0; }
+  .stat::before { height: 2px; }
+  .stat.clickable:hover { transform: none; }
+  .stat.clickable.active { padding-right: 22px; }
+  .stat.clickable.active::after { top: 50%; right: 7px; transform: translateY(-50%); }
+  .stats-by-status { gap: 6px; margin: 0 0 14px; grid-template-columns: 112px repeat(5, minmax(0, 1fr)); }
+  .stats-by-status .row-label { flex-direction: row; align-items: baseline; justify-content: flex-start; gap: 5px; font-size: 12px; white-space: nowrap; }
+  .stats-by-status .stat { padding: 4px 8px 3px; }
+  .stats-by-status .stat .value { font-size: 14px; }
+  @media (max-width: 720px) {
+    .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .stats-by-status { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .stats-by-status .row-label { grid-column: 1 / -1; }
+  }
+  .stat:hover { transform: translateY(-1px); border-color: var(--accent); }
+  .stat .label { font-weight: 600; }
+  .stat .value { font-variant-numeric: tabular-nums; }
+
+  /* Compact "when" chip in the collapsed item head (right-aligned). */
+  .item-when {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--muted);
+    white-space: nowrap;
+    align-self: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .item-when.done { color: var(--shipped); font-weight: 600; }
+
+  /* Relative-age hint next to a full date in the Facts block. */
+  .rel { color: var(--muted); font-size: 0.9em; }
+
+  /* Stale open item (no update in 60+ days). */
+  .badge.stale-badge { background: var(--p1); color: #fff; border-color: var(--p1); }
+  .item.stale { border-left: 3px solid var(--p1); }
+
+  /* Copy-permalink button in Facts. */
+  .copy-link {
+    font-size: 11px;
+    padding: 1px 8px;
+    margin-left: 4px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: var(--surface);
+    color: var(--muted);
+    cursor: pointer;
+    transition: all .12s;
+  }
+  .copy-link:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Ephemeral "Link copied" toast. */
+  #toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(16px);
+    background: var(--text);
+    color: var(--bg);
+    padding: 8px 18px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 500;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .18s ease, transform .18s ease;
+    z-index: 100;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* ─────────────────────────────────────────────────────────────────────
+     Compact filter pane (2026-07-26)
+     The pane had grown to ELEVEN stacked full-width rows. Because it is
+     sticky, it occupied most of the viewport and left almost no room for
+     the items it filters. Fix: a one-line PRIMARY bar (search + sort +
+     group + actions) that is always visible, with every other control
+     behind a "Filters" toggle that is height-capped and scrollable, so
+     the pane can never dominate the screen again. Nothing was removed.
+     Last block in <style> so it wins over the earlier .chip/.filters
+     rules AND the mobile media query above (its own query re-enlarges
+     touch targets below).
+     ───────────────────────────────────────────────────────────────────── */
+  .filters { padding: 10px 12px; }
+
+  .filter-primary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .filter-primary .search-wrap { flex: 1 1 260px; min-width: 190px; }
+  .filter-primary .search { padding: 6px 30px 6px 10px; font-size: 13px; }
+
+  /* Active-filter count — the collapsed pane must still SAY that hidden
+     filters are narrowing the list, else a filtered view reads as data loss. */
+  .fbadge {
+    display: none; margin-left: 6px; padding: 0 6px; border-radius: 999px;
+    background: var(--accent); color: #fff; font-size: 10px; line-height: 16px;
+    font-variant-numeric: tabular-nums;
+  }
+  .fbadge.on { display: inline-block; }
+  #filters-toggle[aria-expanded="true"] { border-color: var(--accent); }
+
+  .filter-advanced {
+    display: none;
+    margin-top: 10px; padding-top: 10px;
+    border-top: 1px solid var(--border);
+    max-height: 42vh; overflow-y: auto;   /* hard cap — the safety net */
+    overscroll-behavior: contain;
+  }
+  .filters.open .filter-advanced { display: block; }
+
+  .filter-grid { display: flex; flex-wrap: wrap; gap: 7px 18px; }
+  .fgroup { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; }
+  .fgroup.wide { width: 100%; margin-top: 9px; }
+  .fgroup.actions { gap: 8px; }
+  .fgroup-label {
+    font-size: 10px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: .05em; margin-right: 2px; flex-shrink: 0;
+  }
+  .filter-advanced .chip-group { display: flex; flex-wrap: wrap; gap: 5px; }
+  .filter-advanced .chip { padding: 3px 8px; font-size: 11.5px; }
+  .fgroup .search-wrap { flex: 1 1 240px; }
+  .fgroup .search { padding: 6px 30px 6px 10px; font-size: 13px; }
+
+  @media (max-width: 640px) {
+    /* Restore comfortable touch targets (the rule above is desktop-density). */
+    .filter-advanced .chip { padding: 7px 11px; font-size: 12.5px; }
+    .filter-advanced { max-height: 50vh; }
+    .filter-primary .search-wrap { flex-basis: 100%; }
+  }
 </style>
+
 </head>
 <body>
+<div class="container">
+
 <header>
-  <div class="logo">S</div>
-  <div>
-    <h1>SpeakUp — Backlog</h1>
-    <p>Voice-to-structured-text desktop app · priority-ordered backlog &amp; status tracker</p>
-  </div>
+  <h1>SpeakUp — Backlog</h1>
+  <p class="sub">
+    Single source of truth for SpeakUp's backlog — pending, in flight, shipped.
+    North star: feel as good as Wispr Flow, the paid app it replaces — judged on four pillars:
+    <strong>Speed</strong>, <strong>Accuracy</strong>, <strong>Reliability</strong>, <strong>Effortless</strong>.
+    What is built and how it works lives in <a href="README.md">README.md</a>.
+  </p>
 </header>
 
-<div class="wrap">
-  <div class="stats" id="stats"></div>
+<!-- Every item, stat tile and filter chip on this page is built by JavaScript
+     from the ITEMS array below; the markup ships empty. So a viewer that does
+     not RUN scripts shows this header and nothing else, which is
+     indistinguishable from a broken or empty backlog. -->
+<noscript>
+  <p style="margin:16px 0;padding:12px 16px;border:1px solid #fbbf24;background:#fffbeb;color:#92400e;border-radius:8px;font-size:14px">
+    <strong>This page needs JavaScript to show its content.</strong>
+    Every backlog item is rendered in the browser from the data at the bottom of
+    this file, so with scripts disabled — or in a static preview/snapshot viewer —
+    the page below stays empty. Open the file directly in a browser to read it.
+  </p>
+</noscript>
 
-  <div class="controls">
-    <input id="search" type="text" placeholder="Search backlog…">
-    <select id="fPriority"><option value="">All priorities</option><option>P1</option><option>P2</option><option>P3</option></select>
-    <span class="statusFilter" id="fStatus">
-      <span class="sfLabel">Status:</span>
-      <label><input type="checkbox" value="Backlog" checked> Backlog</label>
-      <label><input type="checkbox" value="In Progress" checked> In Progress</label>
-      <label><input type="checkbox" value="Parked" checked> Parked</label>
-      <label><input type="checkbox" value="Done" checked> Done</label>
-    </span>
-    <select id="fCategory"><option value="">All categories</option></select>
-    <span class="spacer"></span>
-    <button class="link" id="reset">Reset status changes</button>
+<div class="stats" id="stats"></div>
+
+
+<!-- Filter pane: a one-line PRIMARY bar that is always visible, plus every
+     other control behind the "Filters" toggle (height-capped + scrollable, and
+     its open/closed state persists). -->
+<div class="filters" id="filters">
+
+  <!-- PRIMARY — always visible -->
+  <div class="filter-primary">
+    <div class="search-wrap">
+      <input type="search" class="search" id="search" placeholder="Search by title / file / keyword (press &quot;/&quot; to focus)" />
+      <button class="search-clear" id="search-clear" title="Clear search (Esc)" aria-label="Clear search">&times;</button>
+    </div>
+    <button class="action-btn" id="filters-toggle" aria-expanded="false" aria-controls="filter-advanced"
+            title="Show / hide filters (bucket, status, priority, pillar, kind, epic, category)">
+      Filters <span class="fbadge" id="filters-count"></span>
+    </button>
+    <label class="select-wrap">
+      <span class="select-label">Sort</span>
+      <select id="sort-select">
+        <option value="default">Default (open first → P1…P3)</option>
+        <option value="id">ID alphabetical</option>
+        <option value="priority">Priority (P1…P3)</option>
+        <option value="status">Status (open / parked / shipped)</option>
+        <option value="shipped">Recently shipped</option>
+        <option value="updated">Recently updated</option>
+        <option value="closed">Recently closed</option>
+      </select>
+    </label>
+    <label class="select-wrap">
+      <span class="select-label">Group</span>
+      <select id="group-select">
+        <option value="epic">Epic</option>
+        <option value="none">Flat list</option>
+        <option value="priority">Priority</option>
+        <option value="status">Status</option>
+        <option value="category">Category</option>
+        <option value="kind">Kind</option>
+      </select>
+    </label>
+    <button class="action-btn ghost" id="reset-filters" title="Reset all filters and search (clears saved view state; keeps status changes)">Reset</button>
+    <button class="action-btn ghost" id="help-btn" title="Keyboard shortcuts (?)">?</button>
   </div>
 
-  <table>
-    <thead><tr><th style="width:42%">Item</th><th>Category</th><th>Priority</th><th>Status</th></tr></thead>
-    <tbody id="rows"></tbody>
-  </table>
+  <!-- ADVANCED — collapsible, height-capped, scrollable -->
+  <div class="filter-advanced" id="filter-advanced">
+    <div class="filter-grid">
+      <div class="fgroup">
+        <span class="fgroup-label">Bucket</span>
+        <div class="chip-group" data-group="bucket">
+          <button class="chip active" data-filter="bucket" data-value="all">All <span class="count"></span></button>
+          <button class="chip" data-filter="bucket" data-value="issue">Issue <span class="count"></span></button>
+          <button class="chip" data-filter="bucket" data-value="enhancement">Enhancement <span class="count"></span></button>
+          <button class="chip" data-filter="bucket" data-value="tech">Tech/Infra <span class="count"></span></button>
+        </div>
+      </div>
+      <div class="fgroup">
+        <span class="fgroup-label">Status</span>
+        <div class="chip-group" data-group="status">
+          <button class="chip active" data-filter="status" data-value="all">All <span class="count"></span></button>
+          <button class="chip" data-filter="status" data-value="unfinished" title="Open, in progress, blocked and parked together">Not closed <span class="count"></span></button>
+          <button class="chip" data-filter="status" data-value="open">Open <span class="count"></span></button>
+          <button class="chip" data-filter="status" data-value="in-progress">In progress <span class="count"></span></button>
+          <button class="chip" data-filter="status" data-value="shipped">Shipped <span class="count"></span></button>
+          <button class="chip" data-filter="status" data-value="blocked">Blocked <span class="count"></span></button>
+          <button class="chip" data-filter="status" data-value="parked">Parked <span class="count"></span></button>
+          <button class="chip" data-filter="status" data-value="withdrawn">Withdrawn <span class="count"></span></button>
+        </div>
+      </div>
+      <div class="fgroup">
+        <span class="fgroup-label">Priority</span>
+        <div class="chip-group" data-group="priority">
+          <button class="chip active" data-filter="priority" data-value="all">All <span class="count"></span></button>
+          <button class="chip" data-filter="priority" data-value="P1">P1 <span class="count"></span></button>
+          <button class="chip" data-filter="priority" data-value="P2">P2 <span class="count"></span></button>
+          <button class="chip" data-filter="priority" data-value="P3">P3 <span class="count"></span></button>
+        </div>
+      </div>
+      <div class="fgroup">
+        <span class="fgroup-label">Pillar</span>
+        <div class="chip-group" data-group="pillar">
+          <button class="chip active" data-filter="pillar" data-value="all">All <span class="count"></span></button>
+          <button class="chip" data-filter="pillar" data-value="speed" title="Low lag from key release to text">1: Speed <span class="count"></span></button>
+          <button class="chip" data-filter="pillar" data-value="accuracy" title="The right words, names and formatting">2: Accuracy <span class="count"></span></button>
+          <button class="chip" data-filter="pillar" data-value="reliability" title="A dictation is never lost or garbled">3: Reliability <span class="count"></span></button>
+          <button class="chip" data-filter="pillar" data-value="effortless" title="Invisible when it works, clear when it doesn't">4: Effortless <span class="count"></span></button>
+        </div>
+      </div>
+      <div class="fgroup">
+        <span class="fgroup-label">Kind</span>
+        <div class="chip-group" data-group="kind">
+          <button class="chip active" data-filter="kind" data-value="all">All <span class="count"></span></button>
+          <button class="chip" data-filter="kind" data-value="bug">Bug <span class="count"></span></button>
+          <button class="chip" data-filter="kind" data-value="feature">Feature <span class="count"></span></button>
+          <button class="chip" data-filter="kind" data-value="chore">Chore <span class="count"></span></button>
+          <button class="chip" data-filter="kind" data-value="test">Test <span class="count"></span></button>
+        </div>
+      </div>
+    </div>
 
-  <footer>
-    Status changes are saved in your browser (localStorage) — no server needed.
-    App details live in <code>README.md</code>; this page is the single backlog tracker.
-  </footer>
+    <div class="fgroup wide">
+      <span class="fgroup-label">Epic</span>
+      <div class="chip-group" data-group="epic" id="epic-chips">
+        <button class="chip active" data-filter="epic" data-value="all">All <span class="count"></span></button>
+        <!-- Epic chips injected by JS from EPICS (derived thematic grouping) -->
+      </div>
+    </div>
+    <div class="fgroup wide">
+      <span class="fgroup-label">Category</span>
+      <div class="chip-group" data-group="category" id="category-chips">
+        <button class="chip active" data-filter="category" data-value="all">All <span class="count"></span></button>
+        <!-- Category chips injected by JS from the items' distinct categories -->
+      </div>
+    </div>
+    <div class="fgroup wide">
+      <span class="fgroup-label">Jump to ID</span>
+      <div class="search-wrap">
+        <input type="search" class="search" id="id-jump" list="bl-id-list" placeholder="e.g. p41, d3 (prefix match, autocomplete)" autocomplete="off" />
+        <button class="search-clear" id="id-jump-clear" title="Clear ID filter" aria-label="Clear ID filter">&times;</button>
+      </div>
+      <datalist id="bl-id-list"></datalist>
+    </div>
+    <div class="fgroup wide actions">
+      <button class="action-btn" id="expand-all" title="Expand all visible items">Expand all</button>
+      <button class="action-btn" id="collapse-all" title="Collapse all visible items">Collapse all</button>
+      <button class="action-btn" id="export-csv" title="Export current filtered view to CSV">Export CSV</button>
+      <button class="action-btn ghost" id="clear-status-edits" title="Forget every status changed in this browser and show the statuses written in this file">Clear my status changes <span class="fbadge" id="status-edits-count"></span></button>
+    </div>
+  </div>
+</div>
+
+<div class="items" id="items"></div>
+
+<footer>
+  <div>Single source of truth for SpeakUp's backlog — pending, in flight, shipped. Product docs: <code>README.md</code>.</div>
+  <div style="margin-top: 8px; color: var(--muted); font-size: 12px;">
+    To add an item, append to the <code>ITEMS</code> array in the &lt;script&gt; block (next free id, never reuse one).
+    Filter state persists in localStorage; a status you change with an item's status picker is saved in this
+    browser only (no server) until the file catches up. Permalinks via URL hash (e.g.
+    <code>#p41</code>); keyboard shortcuts available — press <kbd>?</kbd> for help.
+  </div>
+</footer>
+
+</div>
+
+<!-- Keyboard shortcuts help modal -->
+<div class="modal-backdrop" id="help-modal" role="dialog" aria-modal="true" aria-labelledby="help-title">
+  <div class="modal-content">
+    <h3 id="help-title">Keyboard shortcuts</h3>
+    <table>
+      <tr><td><kbd>/</kbd></td><td>Focus search box</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>Clear search / close modal</td></tr>
+      <tr><td><kbd>?</kbd></td><td>Show this help</td></tr>
+      <tr><td><kbd>j</kbd> / <kbd>k</kbd></td><td>Next / previous item</td></tr>
+      <tr><td><kbd>o</kbd> / <kbd>Enter</kbd></td><td>Expand / collapse focused item</td></tr>
+      <tr><td><kbd>e</kbd></td><td>Expand all visible</td></tr>
+      <tr><td><kbd>c</kbd></td><td>Collapse all visible</td></tr>
+      <tr><td><kbd>r</kbd></td><td>Reset all filters</td></tr>
+      <tr><td><kbd>x</kbd></td><td>Export current filtered view to CSV</td></tr>
+    </table>
+    <div style="margin-top: 12px; color: var(--muted); font-size: 12px;">
+      Filter, sort, group, and expanded-item state persist in your browser's
+      localStorage, and so do status changes made with an item's status picker
+      (Reset keeps those; "Clear my status changes" forgets them). URL hash
+      (e.g. <code>#p41</code>) deep-links to a specific item with a flash highlight.
+    </div>
+    <button class="modal-close" onclick="document.getElementById('help-modal').classList.remove('open')">Close</button>
+  </div>
 </div>
 
 <script>
+// Item schema (same field names as Vestora's backlog, minus its Vestora-only
+// dimensions: dq, tier, risk, effort):
+// {
+//   id: 'd1' | 'p41' | 'p2b' — short, stable, PERMANENT identifier. Never reuse
+//        or delete one (tests/test_backlog.py fails if a baselined id vanishes);
+//        close an item with status 'shipped' or 'withdrawn' instead.
+//   title: 'one-line summary',
+//   status: 'open' | 'in-progress' | 'blocked' | 'parked' | 'shipped' | 'withdrawn',
+//   priority: 'P1' | 'P2' | 'P3',
+//   kind: 'bug' | 'feature' | 'chore' | 'test',   // drives the Issue / Enhancement / Tech bucket
+//   pillars: ['speed' | 'accuracy' | 'reliability' | 'effortless'],  // one or more
+//   category: 'live' | 'intelligence' | 'reliability' | 'ux' | 'quality' | 'distribution',
+//   epic: 'Self-learning' | ... (OPTIONAL) — overrides the epic derived from
+//        category (see epicOf()). Must be one of EPICS.
+//   summary: 'the detail — what, why, evidence, fix idea',
+//   plainSummary / benefit / ifIgnored: (optional) plain-language layer shown
+//        above the detail, as on Vestora's page.
+//   files: ['src/...'] (optional),
+//   linksTo: 'related ids' (optional),
+//   shippedAt: 'YYYY-MM-DD' (optional), shippedBy: 'commit-hash' (optional),
+//   createdAt / updatedAt / closedAt: 'YYYY-MM-DD' (optional). Lifecycle dates
+//        are tracked from 2026-10-24 onward; older items predate the field and
+//        leave them blank rather than reconstruct a history nobody recorded.
+//   Any OTHER string field (e.g. shipNote, progressNote) is rendered under
+//   "Notes" and searched, so nothing written is ever invisible.
+// }
 const ITEMS = [
-  // --- Shipped (record of completed work) ---
-  {id:'d1', t:'Smart auto-format mode (default)', c:'Intelligence', p:'P1', s:'Done', n:'Detects the active app and adapts tone/format (chat, email, editor, document).'},
-  {id:'d2', t:'Disfluency cleanup, self-corrections, inline commands', c:'Intelligence', p:'P1', s:'Done', n:'Balanced rewrite: strips fillers/false starts, honours corrections, plain-text output.'},
-  {id:'d3', t:'Personal dictionary', c:'Intelligence', p:'P1', s:'Done', n:'Biases transcription and corrects spelling of names/jargon.'},
-  {id:'d4', t:'Streaming output (insert as written)', c:'UX', p:'P1', s:'Done', n:'Reliable chunked paste at the cursor.'},
-  {id:'d5', t:'Live transcription (OpenAI Realtime API)', c:'Live', p:'P1', s:'Done', n:'Opt-in; transcribe while speaking over a WebSocket.'},
-  {id:'d6', t:'Realtime resilience (capture-first + batch fallback)', c:'Reliability', p:'P1', s:'Done', n:'Live mode can never lose a dictation; falls back to the standard path.'},
-  {id:'d7', t:'Clipboard-safe paste', c:'UX', p:'P2', s:'Done', n:'Restores the previous clipboard after auto-paste.'},
-  {id:'d8', t:'gpt-4o-transcribe default + model modernisation', c:'Intelligence', p:'P2', s:'Done', n:'Most accurate speech model by default.'},
-  {id:'d9', t:'Terminal Ctrl+C crash fix', c:'Reliability', p:'P1', s:'Done', n:'Selection capture no longer sends SIGINT in consoles.'},
-  {id:'d10', t:'Settings UI redesign', c:'UX', p:'P2', s:'Done', n:'Contrast, accent, scroll area, dark title bar, key show/test, greyed inapplicable options.'},
-
-  // --- Pending: P1 ---
-  {id:'p1', t:'Make live mode reliable (isolate realtime socket from qasync)', c:'Live', p:'P1', s:'Done', n:'Realtime now runs on its own thread/loop; verified connecting (no DNS fallback), ~1s transcript on release.'},
-  {id:'p2', t:'Live caption while speaking', c:'Live', p:'P1', s:'Done', n:'Verified on-device. Floating caption (blinking caret, stable box) streams word-by-word via Deepgram when DEEPGRAM_API_KEY is set; OpenAI server-VAD (per-pause) otherwise. OpenAI batch fallback. Deepgram key entered in Settings; docs updated.'},
-  {id:'p2b', t:'Snappier instant output (latency)', c:'UX', p:'P1', s:'Done', n:'Streaming front-loads the first words and pastes on a background thread that overlaps with generation. Transcript ~0.3s; the rewrite is the whole perceived wait. The keep-alive client that once caused an anyio cancel-scope crash is now safe — all OpenAI calls run on a dedicated rewrite thread/loop with a persistent client. Cold-start handled by a keep-warm heartbeat (see p25).'},
-  {id:'p3', t:'"Nitin Mode" — style learning', c:'Intelligence', p:'P1', s:'Parked', n:'Learn the user\'s writing voice from real samples so output sounds personal. Parked 2026-06-28.'},
-
-  // --- Pending: P2 ---
-  {id:'p4', t:'Re-run last dictation in another mode', c:'UX', p:'P2', s:'Done', n:'Tray → "Re-run last dictation" lists every mode; re-rewrites the cached last transcript in the chosen mode and delivers via the configured output — no re-speaking. Re-detects the active app for Smart mode.'},
-  {id:'p5', t:'Dictation history (copy / re-run)', c:'UX', p:'P2', s:'Backlog', n:'Small window of recent transcripts and outputs.'},
-  {id:'p6', t:'Auto-learning dictionary', c:'Intelligence', p:'P2', s:'Done', n:'VocabLearner watches dictations for recurring proper-noun-like words not already in your dictionary and surfaces them as Add/Ignore suggestions in Settings → Personal Dictionary (only mid-sentence capitalised words count; threshold 3; large common/brand/acronym stop-list; stored in vocab_suggestions.json). Hardened + made toggleable in p23.'},
-  {id:'p7', t:'In-app feedback when falling back to batch', c:'UX', p:'P2', s:'Done', n:'Implemented: when live transcription drops to batch (fell back mid-run, or could not start), a quiet tray balloon "Live transcription unavailable — used standard mode." appears via a pipeline notice callback. Never blocks dictation.'},
-  {id:'p8', t:'Tests for new features', c:'Quality', p:'P2', s:'Done', n:'Added tests/test_new_features.py (11 tests): cost estimation, VocabLearner extraction/ignore, prompt assembly, streaming inserter boundaries/order/clipboard-restore, and the live→batch fallback notice. Also fixed 3 stale tests (modern speech-model default, renamed config globals, streaming-output default). Full suite: 30 passing.'},
-  {id:'p9', t:'Rebuild .exe + update PyInstaller spec', c:'Distribution', p:'P2', s:'Done', n:'Rebuilt dist/SpeakUp.exe (~92 MB, PyInstaller 6.21) with the full recent batch: word-by-word live captions + Deepgram, snappier output, first-run onboarding, cost visibility, auto-learning dictionary, and the fallback hint. Spec updated to bundle the lazily-imported app modules + scipy.io.wavfile (websockets already bundled). Verified no API key strings in the binary.'},
-  {id:'p10', t:'First-run onboarding', c:'Distribution', p:'P2', s:'Done', n:'Implemented: 3-step OnboardingDialog on first run (API key → mic test with live level meter → 30-sec tutorial), skippable, sets onboarding_complete. Re-runnable from tray → Run setup again. Awaiting on-device check.'},
-  {id:'p11', t:'Cost visibility', c:'UX', p:'P2', s:'Done', n:'Implemented: usage_tracker estimates per-run cost (STT per-minute + GPT tokens at approx list prices) and aggregates this-month/lifetime; viewable via tray → Usage & cost. Older runs backfilled from word counts. Awaiting on-device check.'},
-  {id:'p22', t:'Code-sign the exe (remove SmartScreen warning)', c:'Distribution', p:'P2', s:'Parked', n:'Removes the "Windows protected your PC" warning for people you share it with. ~$10/mo Azure Trusted Signing; needs account setup. Parked for now.'},
-
-  // --- Pending: P3 ---
-  {id:'p12', t:'App icon (exe, window, tray)', c:'UX', p:'P3', s:'Done', n:'Multi-resolution SpeakUp icon; replaces the default exe icon.'},
-  {id:'p13', t:'Multi-language support', c:'Intelligence', p:'P3', s:'Backlog', n:'Auto-detect or per-session language.'},
-  {id:'p14', t:'Speaker diarization', c:'Intelligence', p:'P3', s:'Backlog', n:'Distinguish speakers (Phase 2). OpenAI now ships a dedicated model for this — gpt-4o-transcribe-diarize (confirmed available on the account, 2026-07-26) — so this no longer needs a custom approach; gpt-transcribe itself does NOT do diarization. Deepgram also offers diarize=true on the streaming path.'},
-  {id:'p15', t:'Persistent memory profile', c:'Intelligence', p:'P3', s:'Backlog', n:'Cross-session preferences/profile.'},
-  {id:'p16', t:'Mobile companion app', c:'Distribution', p:'P3', s:'Backlog', n:'Phase 2.'},
-  {id:'p17', t:'WhatsApp integration', c:'Distribution', p:'P3', s:'Backlog', n:'Phase 2.'},
-  {id:'p18', t:'VS Code extension version', c:'Distribution', p:'P3', s:'Backlog', n:'Phase 2.'},
-  {id:'p19', t:'Deepgram provider', c:'Reliability', p:'P3', s:'Done', n:'Superseded/delivered: Deepgram is now the ACTIVE live+final transcriber — with a key + live transcription on it produces the word-by-word captions AND the transcript that gets rewritten/pasted. Resolves instantly (DNS fix + DoH fallback) and is guarded against duplicate segments. Leftover extras (a standalone Deepgram provider picker decoupled from the live toggle; auto-fallback if OpenAI degrades) folded into p20.'},
-  {id:'p20', t:'Configurable AI provider abstraction', c:'Reliability', p:'P3', s:'Backlog', n:'A clean swap-the-engine socket inside the app. Today each AI service (OpenAI, Deepgram, local) is wired in by hand. This would add one tidy internal layer so the transcription or rewrite provider can be picked from Settings with no code changes. It is plumbing/groundwork, not a user-facing feature — low priority while OpenAI is the only default. Also covers the leftovers from p19: expose Deepgram as a standalone provider choice (decoupled from the live-transcription toggle) and auto-fallback to another provider if OpenAI degrades.'},
-  {id:'p21', t:'Self-host / offline mode', c:'Distribution', p:'P3', s:'Backlog', n:'Run the ENTIRE pipeline on your own PC — no internet, no API keys, no per-use cost, maximum privacy. Local speech-to-text already exists (the Local / faster-whisper provider in Settings); the missing piece is a local AI model to do the cleanup/rewrite step that is currently always OpenAI GPT in the cloud.'},
-
-  // --- Shipped: 2026-07-18 session (post-launch polish) ---
-  {id:'p23', t:'Dictionary suggestions: bigger stop-list + kill-switch', c:'Intelligence', p:'P2', s:'Done', n:'Auto-learning dictionary kept suggesting obvious words (Chrome, GitHub, Gmail, ETF, Review, I\'ve, Windows). Expanded the stop-word set (contractions, brands/tech the STT already knows, Title-Case business words, acronyms), raised the recurrence threshold 2→3, and _prune_common() drops already-stored junk on launch. Added a kill-switch: suggest_dictionary_terms setting (default on) with a "Suggest new terms from my dictations" checkbox in Settings → Personal Dictionary. Extends p6.'},
-  {id:'p24', t:'One-command release script (release.ps1)', c:'Distribution', p:'P2', s:'Done', n:'Manually running the three release steps risked shipping a half-done update (GitHub code current but its exe or the installed copy stale). release.ps1 runs tests → PyInstaller build → gh release upload --clobber (creates the release if missing) → close app, overwrite %LOCALAPPDATA% copy, relaunch. Version/tag read from src/version.py so the GitHub release always matches the code. Warns on uncommitted/unpushed changes. Flags: -SkipTests, -NoRelease, -NoInstall, -Relaunch. Documented in README.'},
-  {id:'p25', t:'Latency: keep-warm heartbeat + first-word logging + fast model', c:'UX', p:'P1', s:'Done', n:'Logs showed transcription ~0.3s (Deepgram transcribes while speaking) and the whole perceived wait is the GPT rewrite — ~1s warm but ~5s on the first dictation after idle (cold TLS). Background heartbeat pings the rewrite connection every 60s (warm_up throttle 90→50s, httpx keepalive 120→180s) so the first-after-idle dictation is as fast as a warm one. Added time-to-first-word logging (the latency actually perceived). Offered gpt-4.1-nano as a fastest option (not default). Supersedes the reverted keep-alive attempt in p2b — now safe on the dedicated rewrite thread/loop.'},
-  {id:'p35', t:'Track OpenAI speech-model generation (gpt-transcribe / gpt-live-transcribe)', c:'Intelligence', p:'P2', s:'Done', n:'Reviewed OpenAI\'s current transcription docs + the whisper→gpt-transcribe migration cookbook (2026-07-26). gpt-4o-transcribe / gpt-4o-mini-transcribe are now LEGACY (still supported); gpt-transcribe is recommended for files and gpt-live-transcribe for realtime. Added gpt-transcribe to the Speech Model list but did NOT change the default: on a live A/B with generated speech it was actually WORSE on the user\'s own terms ("Versal", "K FinTech") than the current gpt-4o-transcribe — the docs\' recommendation is not automatically better for a given voice, so it is offered to try, not forced. Verified the app\'s existing call shape (response_format=text, language=en, prompt) still works on the new model despite the cookbook\'s caution. Wired the new `keywords` parameter (literal names, max 100) for gpt-transcribe, which FIXED both of its earlier errors — strengthens self-learning phase 1. Fixed a latent bug: the realtime path took whatever whisper_model was set, so picking a FILE-only model (gpt-transcribe, whisper-1 — both 404 on the realtime endpoint) would have broken live transcription; it now maps to gpt-live-transcribe. Then the realtime-transcription docs surfaced a bug that fix would otherwise have introduced: gpt-live-transcribe takes a `languages` ARRAY, not the legacy `language` string, and sending both is disallowed — the session config now picks the right field per model generation. Also wired the realtime session\'s `prompt` + `keywords` to the dictionary (ordinary words filtered), matching what Deepgram and the batch path already do. Checked the general Realtime guide too: the client sends only Authorization and no deprecated OpenAI-Beta header, so it is already GA-compliant — no change needed. NOTE the realtime path is dormant while a Deepgram key is set, so these are reasoned + unit-tested but not live-exercised.'},
-
-  {id:'p36', t:'Transcription benchmark (measure models on YOUR voice, not the changelog)', c:'Quality', p:'P2', s:'Done', n:'scripts/benchmark_transcription.py compares engines on a passage dense with the user\'s real terms, scoring TERM RECALL (what you actually notice — a mangled name is what you retype) and WER. Modes: --record (your own mic, the only result that counts), --audio (a saved WAV), --generate (TTS, no mic needed), --trials N (averages over several TTS voices, because single runs are noisy — nova-2 scored 10/13 then 8/13 on consecutive runs). Findings from 4 trials: gpt-4o-mini-transcribe 12.8/13 @5.2% WER > gpt-4o-transcribe 11.8 @7.6% > gpt-transcribe 10.0 @12.2% > nova-2 9.0 @16.9% > nova-3 8.8 @17.4%. CONCLUSION: nova-3 is NOT an upgrade over nova-2 here, so the migration was not made; the newest OpenAI model is the worst of its three; and the ACTIVE transcriber (Deepgram nova-2) trails OpenAI by ~3x WER. Verified nova-3 keyterm biasing genuinely applies (7/13 -> 9/13) and that Deepgram silently 200s on unknown params, so HTTP status alone proves nothing. CAVEAT: synthesised speech is clean and accent-neutral; a real recording is needed before changing the live engine. REAL-VOICE RESULT (2026-07-26, Nitin reading the passage, 1 trial): gpt-4o-transcribe 12/13 @7.0% WER > gpt-live-transcribe 11/13 @7.0% > gpt-4o-mini-transcribe 11/13 @16.3% > gpt-transcribe 10/13 @18.6% > nova-3 9/13 @23.3% > nova-2 8/13 @30.2%. This REVERSED the synthetic finding on Deepgram: on real voice nova-3 IS better than nova-2 (+1 term, -7pp WER) where synthetic showed a dead heat — vindicating the insistence on a real recording. Bigger finding: the ACTIVE engine (nova-2) is the WORST of the six on the user\'s own voice, ~4x the WER of the best, while OpenAI\'s gpt-live-transcribe streams deltas (so it can drive live captions) at 11/13 @7.0% — and the app already implements that path (RealtimeTranscriber), it is simply out-ranked by the Deepgram branch. See p37.'},
-
-  {id:'p37', t:'Live engine is now an explicit setting (Deepgram vs OpenAI)', c:'Live', p:'P1', s:'Done', n:'SHIPPED the toggle, NOT a default change — Settings → Transcription → Live engine (auto | deepgram | openai; live_engine). "auto" preserves the historical behaviour exactly, so nothing changes until you choose. Asking for Deepgram without a key falls back to OpenAI with a quiet notice rather than failing. Each dictation logs "Live engine: …" so an A/B is verifiable from the log. Verified end-to-end that each setting instantiates the right client. The DEFAULT stays auto deliberately: accuracy favours OpenAI on the real-voice benchmark, but latency (the reason Deepgram was picked) is the counterweight. LATENCY NOW MEASURED from real use (2026-08-01): Deepgram n=477 transcribe 0.46s median, first word 1.73s median; OpenAI n=16 transcribe 1.67s, first word 2.98s — so OpenAI costs ~1.2s per dictation for its accuracy. User confirmed on 2026-08-01 that captions work and "quality feels better" on OpenAI. OPTIMISATION SPOTTED: runs that ended with 0 segments (transcript taken from accumulated deltas) finished in ~0.84s, while runs that waited for a `completed` event took ~1.6-1.7s — so bounding the wait for the final event and falling back to delta text could recover roughly a second, at some accuracy risk since the final transcript can correct earlier deltas. See p38. Original rationale: real-voice benchmark (p36) put the ACTIVE engine last: nova-2 8/13 terms @30.2% WER vs gpt-live-transcribe 11/13 @7.0%. gpt-live-transcribe streams deltas, so it can drive word-by-word captions the way Deepgram does, and the app ALREADY implements that path (RealtimeTranscriber) — start_recording simply prefers the Deepgram branch whenever DEEPGRAM_API_KEY is set. Proposed: make the live engine an explicit setting (deepgram | openai | auto) instead of "whoever has a key", defaulting unchanged until proven in daily use. UNMEASURED and required before switching: perceived LATENCY (Deepgram was chosen for snappy word-by-word captions; OpenAI realtime segments on server VAD) and cost per minute. METHOD CAVEATS on the numbers: single trial, mic peaked at 1.000 (possible clipping), the benchmark drives Deepgram over REST while the app uses STREAMING (which is typically no better), and WER is inflated for engines that captured the user re-reading the opening line — term recall is the sturdier metric here and it agrees.'},
-
-  {id:'p38', t:'Close the ~1.2s latency gap on the OpenAI live engine', c:'Live', p:'P1', s:'Done', n:'FIXED, and the cause was not what was proposed. Probing the API showed (a) NOTHING is ever sent after the committed buffer\'s transcript — 0 events after `completed` across trials — yet the loop still waited out its 0.8s quiet period on every dictation, and (b) the delta text and the final transcript were IDENTICAL, so the feared accuracy trade did not exist. The fix is therefore zero-risk: finish as soon as the final transcript arrives (should_finish()), keeping the quiet/hard-cap rules for the VAD path and as a backstop. No text is discarded. Measured end-to-end on the real session object with real-time-paced audio: release->transcript 1.16s vs a 1.67s median before. Also tested the documented `delay: "low"` option — accepted but SLOWER (5.89s vs 4.04s to finalise), so not adopted. Original analysis: measured in real use: OpenAI live costs ~1.2s more than Deepgram per dictation (first word 2.98s vs 1.73s median). The logs show WHERE it goes: runs whose transcript came from accumulated deltas finished in ~0.84s, while runs that waited for a `completed` event after the commit took ~1.6-1.7s. So the wait for the final event is roughly a second of the gap. Proposal: on release, bound the wait for `completed` (e.g. 300-400ms) and fall back to the delta text already accumulated. RISK: the final transcript can CORRECT earlier deltas, so this trades a little accuracy for the latency — which would partly undo the reason for switching engines. Measure both before adopting: compare delta-only vs completed text on the same clips, and only ship if the difference is negligible. Also worth testing the realtime `delay: "low"` option documented for gpt-live-transcribe.'},
-
-  {id:'p39', t:'Deepgram feature audit — every option assessed, no changes needed', c:'Live', p:'P2', s:'Done', n:'Audited nova-3\'s full transcription feature list against real-voice audio so this does not get re-litigated. USING (all four that matter): keyterm (27 terms — without it 13/13 collapses to 7/13), smart_format + punctuate (essential: without them the transcript is all lowercase with no punctuation and dictionary terms lose their capitals — invisible to WER, which normalises punctuation, so judged by reading the output), interim_results (required for captions). REJECTED as harmful: profanity_filter (censors the user), redact (destroys dictated content — a spoken phone number becomes a tag), numerals (MEASURED WORSE, 14.0% vs 11.6% WER; smart_format already formats numbers and the rewrite has explicit number rules), dictation (no measured gain; risks "the period of the loan" -> "the . of the loan"), keywords (nova-3 does not support it). IRRELEVANT: diarize (single speaker), search (returns acoustic match positions, not a better transcript), find-and-replace (our phonetic layer is strictly better — it matches sound-alikes, Deepgram\'s needs an exact lowercase word). ENDPOINTING TESTED AND REJECTED: default(10)/100/300/500 all gave identical accuracy (13/13, 11.6%, 7 segments) and, on 3 repeats each, identical post-release latency (0.34s mean for both default and 300, overlapping ranges) — because the client sends CloseStream on release, which forces a flush, so pause-based endpointing is bypassed at the only moment that affects latency. Remaining unused option is vad_events (a speech-started signal — pure UX, no accuracy effect).'},
-
-  // --- Self-learning roadmap (phased; see p30 for the rationale) ---
-  {id:'p30', t:'Self-learning Phase 1: bias the transcriber + fix phonetic near-misses', c:'Intelligence', p:'P1', s:'Done', n:'SHIPPED. Learn WITHOUT asking anything of the user, and without storing speech. Two parts: (1) the personal dictionary never reached Deepgram — the actual live transcriber — so send it as nova-2 keyword boosting (keywords=TERM:INTENSIFIER, repeatable, max 100, small intensifiers to avoid false positives); (2) deterministic phonetic near-miss correction: index dictionary terms by a sound-alike key that folds STT-confusable consonant groups (v/w/f, t/d, k/c/g, s/z), slide n-gram windows over the transcript, and repair split/misheard terms ("west or a" -> "Vestora") before the rewrite. No new UI, no privacy trade-off, no latency cost. Highest value/effort ratio of the roadmap. Verified on the real dictionary: "west or a"→Vestora, "well quest"→WealQuest, "well due cate"→Wealducate, "Nithin"→Nitin, while "the west side", "well, that went..." and "make a request" are left alone. Guarded against dictionaries that have accumulated ordinary words (Order, Speak, Additionally, I\'m) — those are never used as correction targets nor boosted, since Deepgram warns that boosting common words raises false positives. Toggle: Settings → Personal Dictionary → "Fix mis-heard dictionary terms automatically" (phonetic_correction). Two false-positive classes found in real use and fixed: (a) multi-word stitching turned "she came all the way" into "she Komal the way" — multi-word matches now need a longer, distinctive key; (b) the REWRITE PROMPT (not the phonetic module) turned "finish" into "KFinTech" because its old wording "if a spoken word sounds like one of these" let the model match ordinary English on a few shared sounds — it now says do NOT force a match and keep the dictated word when in doubt. Live-verified: finish/cloud/final/camps/seaside all survive, while "k fin tech" → KFinTech still works. THIRD false-positive class found 2026-08-26 and fixed: the sound key flattens every vowel, so ordinary English collided with dictionary terms outright - "houses", "issues", "assess" and "excess" all fold to the same key as Axis; "medium" and "Notion" to Nitin; "guides" to Codex. Sliding windows also swallowed neighbouring words and sentence boundaries ("of Vestora" -> "Vestora" deleted the "of"; "Vestora. I" deleted both the full stop and the "I"). Measured on the real log: of 91 corrections ever made, 79 were corrupting speech and only 12 were genuine. Fixed with three guards - (a) a VOWEL-SENSITIVE second key that re-checks the match with the vowels put back, with zero slack for short acronym keys; (b) ordinary-English protection covering plural/past/-ing forms; (c) windows may not cross a clause boundary nor already contain the term, and match exactly rather than fuzzily. Deliberately NO "window contains a function word" rule - the flagship case "west or a" -> Vestora is two function words out of three. Re-verified by replaying all 91 logged corrections: 79/79 harmful now prevented, 10/12 genuine repairs still working (the 2 lost are "we start" -> Vestora, genuinely ambiguous English). Swept 1833 distinct words of the user\'s own prose: 5 rewrites, all correct. 38 tests in tests/test_phonetic.py.'},
-  {id:'p31', t:'Self-learning Phase 2: correction capture loop', c:'Intelligence', p:'P2', s:'Backlog', n:'A hotkey right after a dictation opens the output in an editable box; on save the app diffs original vs corrected and classifies each change (term error / punctuation / casing / tone / verbosity). CRITICAL GUARD: distinguish transcription ERRORS from the user CHANGING THEIR MIND — "Tuesday"->"Wednesday" is intent, not error, and learning it would corrupt future dictations. Use phonetic distance as the filter (sound-alike = error, unrelated = intent). Requires storing dictation history locally, so it must be opt-in, local-only, viewable, deletable, with retention limits — this cuts against the app\'s current privacy posture (transcript logging is off by default). EVIDENCE 2026-08-26: the houses->Axis bug (see p30) is exactly what this loop exists to catch - it ran ~79 times across weeks and was only noticed when the user happened to spot it. REFINEMENT to the guard above: p31 assumed sound-alike = transcription error = learn it. When the user reverts a word the app ITSELF changed (every phonetic fix is already logged as "Phonetic fix: X -> Y"), sound-alike means the OPPOSITE - our correction was wrong - and the right lesson is to add that word to the never-replace list, not to learn a new term. That single negative signal would have closed this class automatically instead of by hand-curating the ordinary-word list in phonetic.py, and it is the cheapest first slice of this phase: it needs no dictation history at all, only the last output plus the corrected version. CHEAPEST CAPTURE MECHANISM: a "correct that" hotkey that reads the user\'s current selection and diffs it against the last text SpeakUp pasted - no editable box, no OS accessibility hooks, works in every app, and stores nothing unless the user invokes it.'},
-  {id:'p32', t:'Self-learning Phase 3: apply learned corrections + style preferences', c:'Intelligence', p:'P2', s:'Backlog', n:'Term corrections applied DETERMINISTICALLY (find/replace, phonetic-aware) — no model call, so reliable and free. Style preferences injected as a short bounded "your preferences" block in the rewrite prompt ("prefers short sentences", "signs off Regards"). Plus 2-3 relevance-selected past correction pairs as few-shot examples. HARD CAP the injected block (e.g. 15 corrections, 5 style rules, 2 examples) and select by relevance — it goes into EVERY request, so unbounded growth would regress the ~1s latency we worked to get.'},
-  {id:'p33', t:'Self-learning Phase 4: "What I\'ve learned" panel', c:'UX', p:'P2', s:'Backlog', n:'Every learned rule visible with occurrence counts, editable and deletable. Not optional: without it the app silently changes the user\'s words with no way to inspect or undo a bad lesson. Also the natural home for the retention/delete-all controls Phase 2 needs. Pairs with confidence thresholds (require N occurrences before auto-applying) and decay of unused rules.'},
-  {id:'p34', t:'Self-learning Phase 5: fine-tuning (only if warranted)', c:'Intelligence', p:'P3', s:'Backlog', n:'Fine-tune gpt-4o-mini on accumulated transcript->corrected pairs. Deliberately LAST: needs 500+ pairs, costs money, takes days to show benefit, can silently degrade, and is not inspectable or reversible the way prompt-level learning is. Only consider if Phases 1-4 plateau, and only with a measurable A/B. Note: transcription models are not fine-tunable via the API, so this could only improve the rewrite step.'},
-
-  {id:'p27', t:'Stop clipboard content pasting instead of the dictation', c:'Reliability', p:'P1', s:'Done', n:'Ctrl+V is asynchronous — the target app reads the clipboard when it processes the keystroke. The restore fired just 50ms after the final Ctrl+V, so a still-pending paste read the RESTORED value and inserted the user\'s previous clipboard instead of the transcript (seen in the wild: a DMARC TXT record pasted 3x). Logs proved the rewrite output was correct, so the fault was purely in the paste stage. Fix: restore is delayed 0.6s on a background thread (no perceived latency — the dictation is already pasted) AND guarded so it only restores if the clipboard still holds what we put there; per-chunk settle raised 18ms→35ms so streaming chunks can\'t overwrite before the app consumes the previous paste. 3 regression tests, one verified to fail against the old synchronous restore.'},
-  {id:'p28', t:'Auto-version every build (minor bump in release.ps1)', c:'Distribution', p:'P2', s:'Done', n:'32 commits had shipped into a release still labelled v1.0.0, so the version no longer identified a build. Cut v1.1.0 with proper user-facing release notes, then taught release.ps1 to bump the MINOR version on every run (1.1.0→1.2.0→1.3.0) and commit+push it before tagging, so the GitHub tag can never point at a stale commit. -Major starts a new series (1.4.0→2.0.0); -NoBump reuses the current version while iterating. Every exe now has its own version, visible in tray → About, so you can tell at a glance whether a machine has the latest. README documents the flags.'},
-  {id:'p29', t:'Numbers as digits in dictated output', c:'Intelligence', p:'P2', s:'Done', n:'Spoken numbers came out spelled as words because the rewrite prompt had no rule about them, so the model defaulted to prose style (Deepgram smart_format already emitted digits, but the rewrite had the final say). Added a contextual rule: DIGITS for money, percentages, dates/years, times, measurements, quantities 10+, versions, decimals, ranges, phone numbers; one-to-nine stay spelled out in casual prose. Verified against live API calls ("twenty five thousand rupees"→25,000; "nine thirty am"→9:30 am; "three point five percent"→3.5%; "three ideas" unchanged).'},
-  {id:'p26', t:'Live caption: smooth, expandable, configurable', c:'Live', p:'P1', s:'Done', n:'Playback overhaul. Coalesced bursty interim updates then added a ~30fps typewriter reveal (ease-out) so chunky 2-3 word engine output flows out smoothly. Line-aware subtitle window fixed clipping/flashing past 3 lines. Made it EXPAND up to N lines with NO window resize (fixed tall transparent click-through pane; a bottom-anchored pill grows upward inside it) — avoids the translucent-resize flash. Height is user-configurable (Settings → Appearance → Caption height, 2-12 lines, default 6; caption_max_lines, live-applied). Fixed last-line descenders being clipped (size to whole line-boxes, not ink bounds).'},
-  {id:'p40', t:'Clean-up failure pastes the transcript; self-heal a retired model', c:'Reliability', p:'P1', s:'Done', n:'2026-10-24: OpenAI retired gpt-4.1-nano overnight (still listed in models.list, but every call 404s model_not_found). Live captions showed the words, then the rewrite failed and the transcript was DISCARDED, so nothing was pasted. Fix: on any rewrite failure the raw (phonetically corrected) transcript is pasted instead - unless text was already typed mid-stream, to avoid duplicates - with a tray notice naming the real cause. A model_not_found/deprecated error also switches gpt_model to the shipped default (gpt-4o-mini) so the next dictation is formatted; no switch when the default itself is the failing model (no loop). gpt-4.1-nano removed from the Settings list. 7 regression tests.'},
-  {id:'p41', t:'Overlapping dictations clobber each other', c:'Reliability', p:'P1', s:'Backlog', n:'Seen 2026-10-24 12:47:12-16: a second hotkey press while the first dictation was still processing started a new live session, then the FIRST run reset the shared _use_realtime/_realtime fields in its finally block - so the second run fell to batch mode and failed with No audio recorded. Fix idea: hand each run its own realtime session object (capture it at stop time) or block a new recording until the previous transcription step finishes.'},
-  {id:'p42', t:'Support GPT-5.x clean-up models', c:'Intelligence', p:'P2', s:'Backlog', n:'gpt-5.4-nano / gpt-5.4-mini work (first word ~630-800ms in a single test on 2026-10-24) but reject max_tokens and need max_completion_tokens + reasoning_effort=none (gpt-5-nano needs minimal) and no temperature. The rewrite engine sends the old parameters, so these models fail today. Needed before the 4.x family is retired too.'},
-  {id:'p43', t:'Make pipeline errors visible', c:'UX', p:'P2', s:'Backlog', n:'A failing dictation only flashed an error on the compact widget (user opacity 0.41), so a total outage looked like the paste was silently broken. Consider a tray notice for errors too (notices are throttled to one a minute) or a clearer error state.'},
-  {id:'p44', t:'Pipeline test opens the real mic and Deepgram', c:'Reliability', p:'P3', s:'Backlog', n:'tests/test_pipeline.py::test_start_recording_resets_cancelled_flag calls start_recording() with the REAL user config, so with live transcription on it opens the microphone and a Deepgram connection during the test run (Deepgram connect failed ... interpreter shutdown in the output, sounddevice warnings in later tests). Patch Config / the live clients in that test.'},
-  {id:'p45', t:'Claude Haiku as automatic backup for clean-up', c:'Reliability', p:'P2', s:'Parked', n:'Awaiting Nitin\'s decision (2026-10-24). Anthropic has no speech-to-text, but Claude Haiku 5.5 can do the clean-up step with streaming ($0.10/$0.50 per M tokens vs gpt-4o-mini $0.15/$0.60; first-word latency NOT yet measured). Idea: if the OpenAI rewrite fails, retry on Claude so a model retirement or OpenAI outage never drops formatting. Needs an Anthropic API key (console.anthropic.com, separate from a Claude.ai plan) and the anthropic SDK; the request shape differs (no temperature). Second exception to the OpenAI-only provider policy, justified by reliability, not quality.'},
+  {
+    id: "d1",
+    title: "Smart auto-format mode (default)",
+    status: "shipped",
+    priority: "P1",
+    kind: "feature",
+    category: "intelligence",
+    pillars: ["accuracy","effortless"],
+    summary: "Detects the active app and adapts tone/format (chat, email, editor, document).",
+  },
+  {
+    id: "d2",
+    title: "Disfluency cleanup, self-corrections, inline commands",
+    status: "shipped",
+    priority: "P1",
+    kind: "feature",
+    category: "intelligence",
+    pillars: ["accuracy"],
+    summary: "Balanced rewrite: strips fillers/false starts, honours corrections, plain-text output.",
+  },
+  {
+    id: "d3",
+    title: "Personal dictionary",
+    status: "shipped",
+    priority: "P1",
+    kind: "feature",
+    category: "intelligence",
+    pillars: ["accuracy"],
+    summary: "Biases transcription and corrects spelling of names/jargon.",
+  },
+  {
+    id: "d4",
+    title: "Streaming output (insert as written)",
+    status: "shipped",
+    priority: "P1",
+    kind: "feature",
+    category: "ux",
+    pillars: ["speed"],
+    summary: "Reliable chunked paste at the cursor.",
+  },
+  {
+    id: "d5",
+    title: "Live transcription (OpenAI Realtime API)",
+    status: "shipped",
+    priority: "P1",
+    kind: "feature",
+    category: "live",
+    pillars: ["speed"],
+    summary: "Opt-in; transcribe while speaking over a WebSocket.",
+  },
+  {
+    id: "d6",
+    title: "Realtime resilience (capture-first + batch fallback)",
+    status: "shipped",
+    priority: "P1",
+    kind: "feature",
+    category: "reliability",
+    pillars: ["reliability"],
+    summary: "Live mode can never lose a dictation; falls back to the standard path.",
+  },
+  {
+    id: "d7",
+    title: "Clipboard-safe paste",
+    status: "shipped",
+    priority: "P2",
+    kind: "feature",
+    category: "ux",
+    pillars: ["reliability","effortless"],
+    summary: "Restores the previous clipboard after auto-paste.",
+  },
+  {
+    id: "d8",
+    title: "gpt-4o-transcribe default + model modernisation",
+    status: "shipped",
+    priority: "P2",
+    kind: "feature",
+    category: "intelligence",
+    pillars: ["accuracy"],
+    summary: "Most accurate speech model by default.",
+  },
+  {
+    id: "d9",
+    title: "Terminal Ctrl+C crash fix",
+    status: "shipped",
+    priority: "P1",
+    kind: "bug",
+    category: "reliability",
+    pillars: ["reliability"],
+    summary: "Selection capture no longer sends SIGINT in consoles.",
+  },
+  {
+    id: "d10",
+    title: "Settings UI redesign",
+    status: "shipped",
+    priority: "P2",
+    kind: "feature",
+    category: "ux",
+    pillars: ["effortless"],
+    summary: "Contrast, accent, scroll area, dark title bar, key show/test, greyed inapplicable options.",
+  },
+  {
+    id: "p1",
+    title: "Make live mode reliable (isolate realtime socket from qasync)",
+    status: "shipped",
+    priority: "P1",
+    kind: "bug",
+    category: "live",
+    pillars: ["reliability","speed"],
+    summary: "Realtime now runs on its own thread/loop; verified connecting (no DNS fallback), ~1s transcript on release.",
+  },
+  {
+    id: "p2",
+    title: "Live caption while speaking",
+    status: "shipped",
+    priority: "P1",
+    kind: "feature",
+    category: "live",
+    pillars: ["speed","effortless"],
+    summary: "Verified on-device. Floating caption (blinking caret, stable box) streams word-by-word via Deepgram when DEEPGRAM_API_KEY is set; OpenAI server-VAD (per-pause) otherwise. OpenAI batch fallback. Deepgram key entered in Settings; docs updated.",
+  },
+  {
+    id: "p2b",
+    title: "Snappier instant output (latency)",
+    status: "shipped",
+    priority: "P1",
+    kind: "feature",
+    category: "ux",
+    pillars: ["speed"],
+    summary: "Streaming front-loads the first words and pastes on a background thread that overlaps with generation. Transcript ~0.3s; the rewrite is the whole perceived wait. The keep-alive client that once caused an anyio cancel-scope crash is now safe — all OpenAI calls run on a dedicated rewrite thread/loop with a persistent client. Cold-start handled by a keep-warm heartbeat (see p25).",
+  },
+  {
+    id: "p3",
+    title: "\"Nitin Mode\" — style learning",
+    status: "parked",
+    priority: "P1",
+    kind: "feature",
+    category: "intelligence",
+    pillars: ["accuracy"],
+    summary: "Learn the user's writing voice from real samples so output sounds personal. Parked 2026-06-28.",
+  },
+  {
+    id: "p4",
+    title: "Re-run last dictation in another mode",
+    status: "shipped",
+    priority: "P2",
+    kind: "feature",
+    category: "ux",
+    pillars: ["effortless"],
+    summary: "Tray → \"Re-run last dictation\" lists every mode; re-rewrites the cached last transcript in the chosen mode and delivers via the configured output — no re-speaking. Re-detects the active app for Smart mode.",
+  },
+  {
+    id: "p5",
+    title: "Dictation history (copy / re-run)",
+    status: "open",
+    priority: "P2",
+    kind: "feature",
+    category: "ux",
+    pillars: ["effortless","reliability"],
+    summary: "Small window of recent transcripts and outputs.",
+  },
+  {
+    id: "p6",
+    title: "Auto-learning dictionary",
+    status: "shipped",
+    priority: "P2",
+    kind: "feature",
+    category: "intelligence",
+    pillars: ["accuracy"],
+    summary: "VocabLearner watches dictations for recurring proper-noun-like words not already in your dictionary and surfaces them as Add/Ignore suggestions in Settings → Personal Dictionary (only mid-sentence capitalised words count; threshold 3; large common/brand/acronym stop-list; stored in vocab_suggestions.json). Hardened + made toggleable in p23.",
+  },
+  {
+    id: "p7",
+    title: "In-app feedback when falling back to batch",
+    status: "shipped",
+    priority: "P2",
+    kind: "feature",
+    category: "ux",
+    pillars: ["effortless"],
+    summary: "Implemented: when live transcription drops to batch (fell back mid-run, or could not start), a quiet tray balloon \"Live transcription unavailable — used standard mode.\" appears via a pipeline notice callback. Never blocks dictation.",
+  },
+  {
+    id: "p8",
+    title: "Tests for new features",
+    status: "shipped",
+    priority: "P2",
+    kind: "test",
+    category: "quality",
+    pillars: ["reliability"],
+    summary: "Added tests/test_new_features.py (11 tests): cost estimation, VocabLearner extraction/ignore, prompt assembly, streaming inserter boundaries/order/clipboard-restore, and the live→batch fallback notice. Also fixed 3 stale tests (modern speech-model default, renamed config globals, streaming-output default). Full suite: 30 passing.",
+  },
+  {
+    id: "p9",
+    title: "Rebuild .exe + update PyInstaller spec",
+    status: "shipped",
+    priority: "P2",
+    kind: "chore",
+    category: "distribution",
+    pillars: ["effortless"],
+    summary: "Rebuilt dist/SpeakUp.exe (~92 MB, PyInstaller 6.21) with the full recent batch: word-by-word live captions + Deepgram, snappier output, first-run onboarding, cost visibility, auto-learning dictionary, and the fallback hint. Spec updated to bundle the lazily-imported app modules + scipy.io.wavfile (websockets already bundled). Verified no API key strings in the binary.",
+  },
+  {
+    id: "p10",
+    title: "First-run onboarding",
+    status: "shipped",
+    priority: "P2",
+    kind: "feature",
+    category: "distribution",
+    pillars: ["effortless"],
+    summary: "Implemented: 3-step OnboardingDialog on first run (API key → mic test with live level meter → 30-sec tutorial), skippable, sets onboarding_complete. Re-runnable from tray → Run setup again. Awaiting on-device check.",
+  },
+  {
+    id: "p11",
+    title: "Cost visibility",
+    status: "shipped",
+    priority: "P2",
+    kind: "feature",
+    category: "ux",
+    pillars: ["effortless"],
+    summary: "Implemented: usage_tracker estimates per-run cost (STT per-minute + GPT tokens at approx list prices) and aggregates this-month/lifetime; viewable via tray → Usage & cost. Older runs backfilled from word counts. Awaiting on-device check.",
+  },
+  {
+    id: "p22",
+    title: "Code-sign the exe (remove SmartScreen warning)",
+    status: "parked",
+    priority: "P2",
+    kind: "chore",
+    category: "distribution",
+    pillars: ["effortless"],
+    summary: "Removes the \"Windows protected your PC\" warning for people you share it with. ~$10/mo Azure Trusted Signing; needs account setup. Parked for now.",
+  },
+  {
+    id: "p12",
+    title: "App icon (exe, window, tray)",
+    status: "shipped",
+    priority: "P3",
+    kind: "feature",
+    category: "ux",
+    pillars: ["effortless"],
+    summary: "Multi-resolution SpeakUp icon; replaces the default exe icon.",
+  },
+  {
+    id: "p13",
+    title: "Multi-language support",
+    status: "open",
+    priority: "P3",
+    kind: "feature",
+    category: "intelligence",
+    pillars: ["accuracy"],
+    summary: "Auto-detect or per-session language.",
+  },
+  {
+    id: "p14",
+    title: "Speaker diarization",
+    status: "open",
+    priority: "P3",
+    kind: "feature",
+    category: "intelligence",
+    pillars: ["accuracy"],
+    summary: "Distinguish speakers (Phase 2). OpenAI now ships a dedicated model for this — gpt-4o-transcribe-diarize (confirmed available on the account, 2026-07-26) — so this no longer needs a custom approach; gpt-transcribe itself does NOT do diarization. Deepgram also offers diarize=true on the streaming path.",
+  },
+  {
+    id: "p15",
+    title: "Persistent memory profile",
+    status: "open",
+    priority: "P3",
+    kind: "feature",
+    category: "intelligence",
+    pillars: ["accuracy"],
+    summary: "Cross-session preferences/profile.",
+  },
+  {
+    id: "p16",
+    title: "Mobile companion app",
+    status: "open",
+    priority: "P3",
+    kind: "feature",
+    category: "distribution",
+    pillars: ["effortless"],
+    summary: "Phase 2.",
+  },
+  {
+    id: "p17",
+    title: "WhatsApp integration",
+    status: "open",
+    priority: "P3",
+    kind: "feature",
+    category: "distribution",
+    pillars: ["effortless"],
+    summary: "Phase 2.",
+  },
+  {
+    id: "p18",
+    title: "VS Code extension version",
+    status: "open",
+    priority: "P3",
+    kind: "feature",
+    category: "distribution",
+    pillars: ["effortless"],
+    summary: "Phase 2.",
+  },
+  {
+    id: "p19",
+    title: "Deepgram provider",
+    status: "shipped",
+    priority: "P3",
+    kind: "feature",
+    category: "reliability",
+    pillars: ["speed","reliability"],
+    summary: "Superseded/delivered: Deepgram is now the ACTIVE live+final transcriber — with a key + live transcription on it produces the word-by-word captions AND the transcript that gets rewritten/pasted. Resolves instantly (DNS fix + DoH fallback) and is guarded against duplicate segments. Leftover extras (a standalone Deepgram provider picker decoupled from the live toggle; auto-fallback if OpenAI degrades) folded into p20.",
+  },
+  {
+    id: "p20",
+    title: "Configurable AI provider abstraction",
+    status: "open",
+    priority: "P3",
+    kind: "chore",
+    category: "reliability",
+    pillars: ["reliability"],
+    summary: "A clean swap-the-engine socket inside the app. Today each AI service (OpenAI, Deepgram, local) is wired in by hand. This would add one tidy internal layer so the transcription or rewrite provider can be picked from Settings with no code changes. It is plumbing/groundwork, not a user-facing feature — low priority while OpenAI is the only default. Also covers the leftovers from p19: expose Deepgram as a standalone provider choice (decoupled from the live-transcription toggle) and auto-fallback to another provider if OpenAI degrades.",
+  },
+  {
+    id: "p21",
+    title: "Self-host / offline mode",
+    status: "open",
+    priority: "P3",
+    kind: "feature",
+    category: "distribution",
+    pillars: ["reliability"],
+    summary: "Run the ENTIRE pipeline on your own PC — no internet, no API keys, no per-use cost, maximum privacy. Local speech-to-text already exists (the Local / faster-whisper provider in Settings); the missing piece is a local AI model to do the cleanup/rewrite step that is currently always OpenAI GPT in the cloud.",
+  },
+  {
+    id: "p23",
+    title: "Dictionary suggestions: bigger stop-list + kill-switch",
+    status: "shipped",
+    priority: "P2",
+    kind: "bug",
+    category: "intelligence",
+    pillars: ["accuracy","effortless"],
+    summary: "Auto-learning dictionary kept suggesting obvious words (Chrome, GitHub, Gmail, ETF, Review, I've, Windows). Expanded the stop-word set (contractions, brands/tech the STT already knows, Title-Case business words, acronyms), raised the recurrence threshold 2→3, and _prune_common() drops already-stored junk on launch. Added a kill-switch: suggest_dictionary_terms setting (default on) with a \"Suggest new terms from my dictations\" checkbox in Settings → Personal Dictionary. Extends p6.",
+  },
+  {
+    id: "p24",
+    title: "One-command release script (release.ps1)",
+    status: "shipped",
+    priority: "P2",
+    kind: "chore",
+    category: "distribution",
+    pillars: ["reliability"],
+    summary: "Manually running the three release steps risked shipping a half-done update (GitHub code current but its exe or the installed copy stale). release.ps1 runs tests → PyInstaller build → gh release upload --clobber (creates the release if missing) → close app, overwrite %LOCALAPPDATA% copy, relaunch. Version/tag read from src/version.py so the GitHub release always matches the code. Warns on uncommitted/unpushed changes. Flags: -SkipTests, -NoRelease, -NoInstall, -Relaunch. Documented in README.",
+  },
+  {
+    id: "p25",
+    title: "Latency: keep-warm heartbeat + first-word logging + fast model",
+    status: "shipped",
+    priority: "P1",
+    kind: "feature",
+    category: "ux",
+    pillars: ["speed"],
+    summary: "Logs showed transcription ~0.3s (Deepgram transcribes while speaking) and the whole perceived wait is the GPT rewrite — ~1s warm but ~5s on the first dictation after idle (cold TLS). Background heartbeat pings the rewrite connection every 60s (warm_up throttle 90→50s, httpx keepalive 120→180s) so the first-after-idle dictation is as fast as a warm one. Added time-to-first-word logging (the latency actually perceived). Offered gpt-4.1-nano as a fastest option (not default). Supersedes the reverted keep-alive attempt in p2b — now safe on the dedicated rewrite thread/loop.",
+  },
+  {
+    id: "p35",
+    title: "Track OpenAI speech-model generation (gpt-transcribe / gpt-live-transcribe)",
+    status: "shipped",
+    priority: "P2",
+    kind: "chore",
+    category: "intelligence",
+    pillars: ["accuracy"],
+    summary: "Reviewed OpenAI's current transcription docs + the whisper→gpt-transcribe migration cookbook (2026-07-26). gpt-4o-transcribe / gpt-4o-mini-transcribe are now LEGACY (still supported); gpt-transcribe is recommended for files and gpt-live-transcribe for realtime. Added gpt-transcribe to the Speech Model list but did NOT change the default: on a live A/B with generated speech it was actually WORSE on the user's own terms (\"Versal\", \"K FinTech\") than the current gpt-4o-transcribe — the docs' recommendation is not automatically better for a given voice, so it is offered to try, not forced. Verified the app's existing call shape (response_format=text, language=en, prompt) still works on the new model despite the cookbook's caution. Wired the new `keywords` parameter (literal names, max 100) for gpt-transcribe, which FIXED both of its earlier errors — strengthens self-learning phase 1. Fixed a latent bug: the realtime path took whatever whisper_model was set, so picking a FILE-only model (gpt-transcribe, whisper-1 — both 404 on the realtime endpoint) would have broken live transcription; it now maps to gpt-live-transcribe. Then the realtime-transcription docs surfaced a bug that fix would otherwise have introduced: gpt-live-transcribe takes a `languages` ARRAY, not the legacy `language` string, and sending both is disallowed — the session config now picks the right field per model generation. Also wired the realtime session's `prompt` + `keywords` to the dictionary (ordinary words filtered), matching what Deepgram and the batch path already do. Checked the general Realtime guide too: the client sends only Authorization and no deprecated OpenAI-Beta header, so it is already GA-compliant — no change needed. NOTE the realtime path is dormant while a Deepgram key is set, so these are reasoned + unit-tested but not live-exercised.",
+  },
+  {
+    id: "p36",
+    title: "Transcription benchmark (measure models on YOUR voice, not the changelog)",
+    status: "shipped",
+    priority: "P2",
+    kind: "test",
+    category: "quality",
+    pillars: ["accuracy"],
+    summary: "scripts/benchmark_transcription.py compares engines on a passage dense with the user's real terms, scoring TERM RECALL (what you actually notice — a mangled name is what you retype) and WER. Modes: --record (your own mic, the only result that counts), --audio (a saved WAV), --generate (TTS, no mic needed), --trials N (averages over several TTS voices, because single runs are noisy — nova-2 scored 10/13 then 8/13 on consecutive runs). Findings from 4 trials: gpt-4o-mini-transcribe 12.8/13 @5.2% WER > gpt-4o-transcribe 11.8 @7.6% > gpt-transcribe 10.0 @12.2% > nova-2 9.0 @16.9% > nova-3 8.8 @17.4%. CONCLUSION: nova-3 is NOT an upgrade over nova-2 here, so the migration was not made; the newest OpenAI model is the worst of its three; and the ACTIVE transcriber (Deepgram nova-2) trails OpenAI by ~3x WER. Verified nova-3 keyterm biasing genuinely applies (7/13 -> 9/13) and that Deepgram silently 200s on unknown params, so HTTP status alone proves nothing. CAVEAT: synthesised speech is clean and accent-neutral; a real recording is needed before changing the live engine. REAL-VOICE RESULT (2026-07-26, Nitin reading the passage, 1 trial): gpt-4o-transcribe 12/13 @7.0% WER > gpt-live-transcribe 11/13 @7.0% > gpt-4o-mini-transcribe 11/13 @16.3% > gpt-transcribe 10/13 @18.6% > nova-3 9/13 @23.3% > nova-2 8/13 @30.2%. This REVERSED the synthetic finding on Deepgram: on real voice nova-3 IS better than nova-2 (+1 term, -7pp WER) where synthetic showed a dead heat — vindicating the insistence on a real recording. Bigger finding: the ACTIVE engine (nova-2) is the WORST of the six on the user's own voice, ~4x the WER of the best, while OpenAI's gpt-live-transcribe streams deltas (so it can drive live captions) at 11/13 @7.0% — and the app already implements that path (RealtimeTranscriber), it is simply out-ranked by the Deepgram branch. See p37.",
+  },
+  {
+    id: "p37",
+    title: "Live engine is now an explicit setting (Deepgram vs OpenAI)",
+    status: "shipped",
+    priority: "P1",
+    kind: "feature",
+    category: "live",
+    pillars: ["accuracy","speed"],
+    summary: "SHIPPED the toggle, NOT a default change — Settings → Transcription → Live engine (auto | deepgram | openai; live_engine). \"auto\" preserves the historical behaviour exactly, so nothing changes until you choose. Asking for Deepgram without a key falls back to OpenAI with a quiet notice rather than failing. Each dictation logs \"Live engine: …\" so an A/B is verifiable from the log. Verified end-to-end that each setting instantiates the right client. The DEFAULT stays auto deliberately: accuracy favours OpenAI on the real-voice benchmark, but latency (the reason Deepgram was picked) is the counterweight. LATENCY NOW MEASURED from real use (2026-08-01): Deepgram n=477 transcribe 0.46s median, first word 1.73s median; OpenAI n=16 transcribe 1.67s, first word 2.98s — so OpenAI costs ~1.2s per dictation for its accuracy. User confirmed on 2026-08-01 that captions work and \"quality feels better\" on OpenAI. OPTIMISATION SPOTTED: runs that ended with 0 segments (transcript taken from accumulated deltas) finished in ~0.84s, while runs that waited for a `completed` event took ~1.6-1.7s — so bounding the wait for the final event and falling back to delta text could recover roughly a second, at some accuracy risk since the final transcript can correct earlier deltas. See p38. Original rationale: real-voice benchmark (p36) put the ACTIVE engine last: nova-2 8/13 terms @30.2% WER vs gpt-live-transcribe 11/13 @7.0%. gpt-live-transcribe streams deltas, so it can drive word-by-word captions the way Deepgram does, and the app ALREADY implements that path (RealtimeTranscriber) — start_recording simply prefers the Deepgram branch whenever DEEPGRAM_API_KEY is set. Proposed: make the live engine an explicit setting (deepgram | openai | auto) instead of \"whoever has a key\", defaulting unchanged until proven in daily use. UNMEASURED and required before switching: perceived LATENCY (Deepgram was chosen for snappy word-by-word captions; OpenAI realtime segments on server VAD) and cost per minute. METHOD CAVEATS on the numbers: single trial, mic peaked at 1.000 (possible clipping), the benchmark drives Deepgram over REST while the app uses STREAMING (which is typically no better), and WER is inflated for engines that captured the user re-reading the opening line — term recall is the sturdier metric here and it agrees.",
+  },
+  {
+    id: "p38",
+    title: "Close the ~1.2s latency gap on the OpenAI live engine",
+    status: "shipped",
+    priority: "P1",
+    kind: "feature",
+    category: "live",
+    pillars: ["speed"],
+    summary: "FIXED, and the cause was not what was proposed. Probing the API showed (a) NOTHING is ever sent after the committed buffer's transcript — 0 events after `completed` across trials — yet the loop still waited out its 0.8s quiet period on every dictation, and (b) the delta text and the final transcript were IDENTICAL, so the feared accuracy trade did not exist. The fix is therefore zero-risk: finish as soon as the final transcript arrives (should_finish()), keeping the quiet/hard-cap rules for the VAD path and as a backstop. No text is discarded. Measured end-to-end on the real session object with real-time-paced audio: release->transcript 1.16s vs a 1.67s median before. Also tested the documented `delay: \"low\"` option — accepted but SLOWER (5.89s vs 4.04s to finalise), so not adopted. Original analysis: measured in real use: OpenAI live costs ~1.2s more than Deepgram per dictation (first word 2.98s vs 1.73s median). The logs show WHERE it goes: runs whose transcript came from accumulated deltas finished in ~0.84s, while runs that waited for a `completed` event after the commit took ~1.6-1.7s. So the wait for the final event is roughly a second of the gap. Proposal: on release, bound the wait for `completed` (e.g. 300-400ms) and fall back to the delta text already accumulated. RISK: the final transcript can CORRECT earlier deltas, so this trades a little accuracy for the latency — which would partly undo the reason for switching engines. Measure both before adopting: compare delta-only vs completed text on the same clips, and only ship if the difference is negligible. Also worth testing the realtime `delay: \"low\"` option documented for gpt-live-transcribe.",
+  },
+  {
+    id: "p39",
+    title: "Deepgram feature audit — every option assessed, no changes needed",
+    status: "shipped",
+    priority: "P2",
+    kind: "chore",
+    category: "live",
+    pillars: ["accuracy","speed"],
+    summary: "Audited nova-3's full transcription feature list against real-voice audio so this does not get re-litigated. USING (all four that matter): keyterm (27 terms — without it 13/13 collapses to 7/13), smart_format + punctuate (essential: without them the transcript is all lowercase with no punctuation and dictionary terms lose their capitals — invisible to WER, which normalises punctuation, so judged by reading the output), interim_results (required for captions). REJECTED as harmful: profanity_filter (censors the user), redact (destroys dictated content — a spoken phone number becomes a tag), numerals (MEASURED WORSE, 14.0% vs 11.6% WER; smart_format already formats numbers and the rewrite has explicit number rules), dictation (no measured gain; risks \"the period of the loan\" -> \"the . of the loan\"), keywords (nova-3 does not support it). IRRELEVANT: diarize (single speaker), search (returns acoustic match positions, not a better transcript), find-and-replace (our phonetic layer is strictly better — it matches sound-alikes, Deepgram's needs an exact lowercase word). ENDPOINTING TESTED AND REJECTED: default(10)/100/300/500 all gave identical accuracy (13/13, 11.6%, 7 segments) and, on 3 repeats each, identical post-release latency (0.34s mean for both default and 300, overlapping ranges) — because the client sends CloseStream on release, which forces a flush, so pause-based endpointing is bypassed at the only moment that affects latency. Remaining unused option is vad_events (a speech-started signal — pure UX, no accuracy effect).",
+  },
+  {
+    id: "p30",
+    title: "Self-learning Phase 1: bias the transcriber + fix phonetic near-misses",
+    status: "shipped",
+    priority: "P1",
+    kind: "feature",
+    category: "intelligence",
+    epic: "Self-learning",
+    pillars: ["accuracy"],
+    summary: "SHIPPED. Learn WITHOUT asking anything of the user, and without storing speech. Two parts: (1) the personal dictionary never reached Deepgram — the actual live transcriber — so send it as nova-2 keyword boosting (keywords=TERM:INTENSIFIER, repeatable, max 100, small intensifiers to avoid false positives); (2) deterministic phonetic near-miss correction: index dictionary terms by a sound-alike key that folds STT-confusable consonant groups (v/w/f, t/d, k/c/g, s/z), slide n-gram windows over the transcript, and repair split/misheard terms (\"west or a\" -> \"Vestora\") before the rewrite. No new UI, no privacy trade-off, no latency cost. Highest value/effort ratio of the roadmap. Verified on the real dictionary: \"west or a\"→Vestora, \"well quest\"→WealQuest, \"well due cate\"→Wealducate, \"Nithin\"→Nitin, while \"the west side\", \"well, that went...\" and \"make a request\" are left alone. Guarded against dictionaries that have accumulated ordinary words (Order, Speak, Additionally, I'm) — those are never used as correction targets nor boosted, since Deepgram warns that boosting common words raises false positives. Toggle: Settings → Personal Dictionary → \"Fix mis-heard dictionary terms automatically\" (phonetic_correction). Two false-positive classes found in real use and fixed: (a) multi-word stitching turned \"she came all the way\" into \"she Komal the way\" — multi-word matches now need a longer, distinctive key; (b) the REWRITE PROMPT (not the phonetic module) turned \"finish\" into \"KFinTech\" because its old wording \"if a spoken word sounds like one of these\" let the model match ordinary English on a few shared sounds — it now says do NOT force a match and keep the dictated word when in doubt. Live-verified: finish/cloud/final/camps/seaside all survive, while \"k fin tech\" → KFinTech still works. THIRD false-positive class found 2026-08-26 and fixed: the sound key flattens every vowel, so ordinary English collided with dictionary terms outright - \"houses\", \"issues\", \"assess\" and \"excess\" all fold to the same key as Axis; \"medium\" and \"Notion\" to Nitin; \"guides\" to Codex. Sliding windows also swallowed neighbouring words and sentence boundaries (\"of Vestora\" -> \"Vestora\" deleted the \"of\"; \"Vestora. I\" deleted both the full stop and the \"I\"). Measured on the real log: of 91 corrections ever made, 79 were corrupting speech and only 12 were genuine. Fixed with three guards - (a) a VOWEL-SENSITIVE second key that re-checks the match with the vowels put back, with zero slack for short acronym keys; (b) ordinary-English protection covering plural/past/-ing forms; (c) windows may not cross a clause boundary nor already contain the term, and match exactly rather than fuzzily. Deliberately NO \"window contains a function word\" rule - the flagship case \"west or a\" -> Vestora is two function words out of three. Re-verified by replaying all 91 logged corrections: 79/79 harmful now prevented, 10/12 genuine repairs still working (the 2 lost are \"we start\" -> Vestora, genuinely ambiguous English). Swept 1833 distinct words of the user's own prose: 5 rewrites, all correct. 38 tests in tests/test_phonetic.py.",
+  },
+  {
+    id: "p31",
+    title: "Self-learning Phase 2: correction capture loop",
+    status: "open",
+    priority: "P2",
+    kind: "feature",
+    category: "intelligence",
+    epic: "Self-learning",
+    pillars: ["accuracy"],
+    summary: "A hotkey right after a dictation opens the output in an editable box; on save the app diffs original vs corrected and classifies each change (term error / punctuation / casing / tone / verbosity). CRITICAL GUARD: distinguish transcription ERRORS from the user CHANGING THEIR MIND — \"Tuesday\"->\"Wednesday\" is intent, not error, and learning it would corrupt future dictations. Use phonetic distance as the filter (sound-alike = error, unrelated = intent). Requires storing dictation history locally, so it must be opt-in, local-only, viewable, deletable, with retention limits — this cuts against the app's current privacy posture (transcript logging is off by default). EVIDENCE 2026-08-26: the houses->Axis bug (see p30) is exactly what this loop exists to catch - it ran ~79 times across weeks and was only noticed when the user happened to spot it. REFINEMENT to the guard above: p31 assumed sound-alike = transcription error = learn it. When the user reverts a word the app ITSELF changed (every phonetic fix is already logged as \"Phonetic fix: X -> Y\"), sound-alike means the OPPOSITE - our correction was wrong - and the right lesson is to add that word to the never-replace list, not to learn a new term. That single negative signal would have closed this class automatically instead of by hand-curating the ordinary-word list in phonetic.py, and it is the cheapest first slice of this phase: it needs no dictation history at all, only the last output plus the corrected version. CHEAPEST CAPTURE MECHANISM: a \"correct that\" hotkey that reads the user's current selection and diffs it against the last text SpeakUp pasted - no editable box, no OS accessibility hooks, works in every app, and stores nothing unless the user invokes it.",
+  },
+  {
+    id: "p32",
+    title: "Self-learning Phase 3: apply learned corrections + style preferences",
+    status: "open",
+    priority: "P2",
+    kind: "feature",
+    category: "intelligence",
+    epic: "Self-learning",
+    pillars: ["accuracy"],
+    summary: "Term corrections applied DETERMINISTICALLY (find/replace, phonetic-aware) — no model call, so reliable and free. Style preferences injected as a short bounded \"your preferences\" block in the rewrite prompt (\"prefers short sentences\", \"signs off Regards\"). Plus 2-3 relevance-selected past correction pairs as few-shot examples. HARD CAP the injected block (e.g. 15 corrections, 5 style rules, 2 examples) and select by relevance — it goes into EVERY request, so unbounded growth would regress the ~1s latency we worked to get.",
+  },
+  {
+    id: "p33",
+    title: "Self-learning Phase 4: \"What I've learned\" panel",
+    status: "open",
+    priority: "P2",
+    kind: "feature",
+    category: "ux",
+    epic: "Self-learning",
+    pillars: ["accuracy","effortless"],
+    summary: "Every learned rule visible with occurrence counts, editable and deletable. Not optional: without it the app silently changes the user's words with no way to inspect or undo a bad lesson. Also the natural home for the retention/delete-all controls Phase 2 needs. Pairs with confidence thresholds (require N occurrences before auto-applying) and decay of unused rules.",
+  },
+  {
+    id: "p34",
+    title: "Self-learning Phase 5: fine-tuning (only if warranted)",
+    status: "open",
+    priority: "P3",
+    kind: "feature",
+    category: "intelligence",
+    epic: "Self-learning",
+    pillars: ["accuracy"],
+    summary: "Fine-tune gpt-4o-mini on accumulated transcript->corrected pairs. Deliberately LAST: needs 500+ pairs, costs money, takes days to show benefit, can silently degrade, and is not inspectable or reversible the way prompt-level learning is. Only consider if Phases 1-4 plateau, and only with a measurable A/B. Note: transcription models are not fine-tunable via the API, so this could only improve the rewrite step.",
+  },
+  {
+    id: "p27",
+    title: "Stop clipboard content pasting instead of the dictation",
+    status: "shipped",
+    priority: "P1",
+    kind: "bug",
+    category: "reliability",
+    pillars: ["reliability"],
+    summary: "Ctrl+V is asynchronous — the target app reads the clipboard when it processes the keystroke. The restore fired just 50ms after the final Ctrl+V, so a still-pending paste read the RESTORED value and inserted the user's previous clipboard instead of the transcript (seen in the wild: a DMARC TXT record pasted 3x). Logs proved the rewrite output was correct, so the fault was purely in the paste stage. Fix: restore is delayed 0.6s on a background thread (no perceived latency — the dictation is already pasted) AND guarded so it only restores if the clipboard still holds what we put there; per-chunk settle raised 18ms→35ms so streaming chunks can't overwrite before the app consumes the previous paste. 3 regression tests, one verified to fail against the old synchronous restore.",
+  },
+  {
+    id: "p28",
+    title: "Auto-version every build (minor bump in release.ps1)",
+    status: "shipped",
+    priority: "P2",
+    kind: "chore",
+    category: "distribution",
+    pillars: ["reliability"],
+    summary: "32 commits had shipped into a release still labelled v1.0.0, so the version no longer identified a build. Cut v1.1.0 with proper user-facing release notes, then taught release.ps1 to bump the MINOR version on every run (1.1.0→1.2.0→1.3.0) and commit+push it before tagging, so the GitHub tag can never point at a stale commit. -Major starts a new series (1.4.0→2.0.0); -NoBump reuses the current version while iterating. Every exe now has its own version, visible in tray → About, so you can tell at a glance whether a machine has the latest. README documents the flags.",
+  },
+  {
+    id: "p29",
+    title: "Numbers as digits in dictated output",
+    status: "shipped",
+    priority: "P2",
+    kind: "feature",
+    category: "intelligence",
+    pillars: ["accuracy"],
+    summary: "Spoken numbers came out spelled as words because the rewrite prompt had no rule about them, so the model defaulted to prose style (Deepgram smart_format already emitted digits, but the rewrite had the final say). Added a contextual rule: DIGITS for money, percentages, dates/years, times, measurements, quantities 10+, versions, decimals, ranges, phone numbers; one-to-nine stay spelled out in casual prose. Verified against live API calls (\"twenty five thousand rupees\"→25,000; \"nine thirty am\"→9:30 am; \"three point five percent\"→3.5%; \"three ideas\" unchanged).",
+  },
+  {
+    id: "p26",
+    title: "Live caption: smooth, expandable, configurable",
+    status: "shipped",
+    priority: "P1",
+    kind: "feature",
+    category: "live",
+    pillars: ["effortless"],
+    summary: "Playback overhaul. Coalesced bursty interim updates then added a ~30fps typewriter reveal (ease-out) so chunky 2-3 word engine output flows out smoothly. Line-aware subtitle window fixed clipping/flashing past 3 lines. Made it EXPAND up to N lines with NO window resize (fixed tall transparent click-through pane; a bottom-anchored pill grows upward inside it) — avoids the translucent-resize flash. Height is user-configurable (Settings → Appearance → Caption height, 2-12 lines, default 6; caption_max_lines, live-applied). Fixed last-line descenders being clipped (size to whole line-boxes, not ink bounds).",
+  },
+  {
+    id: "p40",
+    title: "Clean-up failure pastes the transcript; self-heal a retired model",
+    status: "shipped",
+    priority: "P1",
+    kind: "bug",
+    category: "reliability",
+    pillars: ["reliability"],
+    shippedAt: "2026-10-24",
+    shippedBy: "dab8571 + 0aa098f",
+    summary: "2026-10-24: OpenAI retired gpt-4.1-nano overnight (still listed in models.list, but every call 404s model_not_found). Live captions showed the words, then the rewrite failed and the transcript was DISCARDED, so nothing was pasted. Fix: on any rewrite failure the raw (phonetically corrected) transcript is pasted instead - unless text was already typed mid-stream, to avoid duplicates - with a tray notice naming the real cause. A model_not_found/deprecated error also switches gpt_model to the shipped default (gpt-4o-mini) so the next dictation is formatted; no switch when the default itself is the failing model (no loop). gpt-4.1-nano removed from the Settings list. 7 regression tests.",
+  },
+  {
+    id: "p41",
+    title: "Overlapping dictations clobber each other",
+    status: "shipped",
+    priority: "P1",
+    kind: "bug",
+    category: "reliability",
+    pillars: ["reliability"],
+    updatedAt: "2026-10-24",
+    shippedAt: "2026-10-24",
+    shippedBy: "a53b4d4",
+    summary: "Seen 2026-10-24 12:47:12-16: a second hotkey press while the first dictation was still processing started a new live session, then the FIRST run reset the shared _use_realtime/_realtime fields in its finally block - so the second run fell to batch mode and failed with No audio recorded. Fix idea: hand each run its own realtime session object (capture it at stop time) or block a new recording until the previous transcription step finishes.",
+    shipNote: "SHIPPED 2026-10-24 in commit a53b4d4: each key release snapshots its own live session and audio, the mic stops at release, cancellation is per run, a short tap only discards itself, and rewrite + paste are serialised. Also fixed: the widget no longer ignores the next key release when an earlier dictation finishes.",
+  },
+  {
+    id: "p42",
+    title: "Support GPT-5.x clean-up models",
+    status: "shipped",
+    priority: "P2",
+    kind: "feature",
+    category: "intelligence",
+    pillars: ["reliability","speed"],
+    updatedAt: "2026-10-24",
+    shippedAt: "2026-10-24",
+    shippedBy: "ca3a2ac",
+    summary: "gpt-5.4-nano / gpt-5.4-mini work (first word ~630-800ms in a single test on 2026-10-24) but reject max_tokens and need max_completion_tokens + reasoning_effort=none (gpt-5-nano needs minimal) and no temperature. The rewrite engine sends the old parameters, so these models fail today. Needed before the 4.x family is retired too.",
+    shipNote: "SHIPPED 2026-10-24 in commit ca3a2ac: GPT-5 onwards and the o-series get max_completion_tokens + reasoning_effort (none / minimal / low). Verified live for gpt-6-luna, gpt-5.4-nano and gpt-4.1-mini.",
+  },
+  {
+    id: "p43",
+    title: "Make pipeline errors visible",
+    status: "open",
+    priority: "P2",
+    kind: "bug",
+    category: "ux",
+    pillars: ["effortless","reliability"],
+    updatedAt: "2026-10-24",
+    summary: "A failing dictation only flashed an error on the compact widget (user opacity 0.41), so a total outage looked like the paste was silently broken. Consider a tray notice for errors too (notices are throttled to one a minute) or a clearer error state. ADDED 2026-10-24 (overlay review): the live caption inherits the widget opacity (0.41 for this user) (src/ui/overlay.py ~240-246); compact mode hides the status label and ERROR maps the mic button to idle, so an error looks like \"Ready\"; there is no start/stop sound; notices are throttled to one tray popup per minute regardless of type, so an info notice can hide a real error.",
+    files: ["src/ui/overlay.py"],
+  },
+  {
+    id: "p44",
+    title: "Pipeline test opens the real mic and Deepgram",
+    status: "shipped",
+    priority: "P3",
+    kind: "test",
+    category: "reliability",
+    pillars: ["reliability"],
+    updatedAt: "2026-10-24",
+    shippedAt: "2026-10-24",
+    shippedBy: "a53b4d4",
+    summary: "tests/test_pipeline.py::test_start_recording_resets_cancelled_flag calls start_recording() with the REAL user config, so with live transcription on it opens the microphone and a Deepgram connection during the test run (Deepgram connect failed ... interpreter shutdown in the output, sounddevice warnings in later tests). Patch Config / the live clients in that test.",
+    shipNote: "SHIPPED 2026-10-24 in commit a53b4d4.",
+  },
+  {
+    id: "p45",
+    title: "Claude Haiku as automatic backup for clean-up",
+    status: "in-progress",
+    priority: "P2",
+    kind: "feature",
+    category: "reliability",
+    pillars: ["reliability"],
+    updatedAt: "2026-10-24",
+    summary: "Awaiting Nitin's decision (2026-10-24). Anthropic has no speech-to-text, but Claude Haiku 5.5 can do the clean-up step with streaming ($0.10/$0.50 per M tokens vs gpt-4o-mini $0.15/$0.60; first-word latency NOT yet measured). Idea: if the OpenAI rewrite fails, retry on Claude so a model retirement or OpenAI outage never drops formatting. Needs an Anthropic API key (console.anthropic.com, separate from a Claude.ai plan) and the anthropic SDK; the request shape differs (no temperature). Second exception to the OpenAI-only provider policy, justified by reliability, not quality.",
+    progressNote: "IN PROGRESS 2026-10-24: the code shipped in commit ca3a2ac - a backup_model setting (default claude-haiku-5-5), an Anthropic key field in Settings, thinking disabled, no temperature sent. NOT yet verified against the live Anthropic API, because no Anthropic key is on this machine yet. Waiting on Nitin to enter the key in Settings.",
+  },
+  {
+    id: "p46",
+    title: "Silent recording pasted invented text",
+    status: "shipped",
+    priority: "P1",
+    kind: "bug",
+    category: "reliability",
+    pillars: ["reliability","accuracy"],
+    createdAt: "2026-10-24",
+    updatedAt: "2026-10-24",
+    shippedAt: "2026-10-24",
+    shippedBy: "188c425",
+    summary: "SHIPPED 2026-10-24 in commit 188c425. An empty transcript went to the clean-up model, which invented text or echoed session memory - and that text was pasted. Seen 4 times in the log: 2026-09-30 (21 words), 2026-10-15 (6 words), 2026-10-16 (38 words), 2026-10-22 (9 words). Now a transcript with no letters or digits skips clean-up and paste and shows \"No speech heard\".",
+  },
+  {
+    id: "p47",
+    title: "Default clean-up model -> gpt-6-luna; retiring models removed",
+    status: "shipped",
+    priority: "P2",
+    kind: "chore",
+    category: "intelligence",
+    pillars: ["speed","accuracy","reliability"],
+    createdAt: "2026-10-24",
+    updatedAt: "2026-10-24",
+    shippedAt: "2026-10-24",
+    shippedBy: "ca3a2ac",
+    summary: "SHIPPED 2026-10-24 in commit ca3a2ac. Benchmark 2026-10-24 (scripts/benchmark_rewrite.py, SpeakUp's real prompt, 6 dictations x 5 rounds): gpt-6-luna 829 ms to first word, 65/70 terms, $0.12 per 1000 dictations; gpt-4.1-mini 607 ms, 65/70, $0.45; gpt-5.4-nano 627 ms, 61/70, $0.24. OpenAI shutdown dates: gpt-4.1-nano 2026-10-23 (done), gpt-5-nano 2026-12-11, gpt-4o-mini / gpt-4.1 / gpt-4.1-mini 2027-01-14, gpt-5.4-nano 2027-04-01. Known-retired model ids are swapped for the default on load.",
+    files: ["scripts/benchmark_rewrite.py"],
+    linksTo: "p40 (self-heal a retired model), p42 (GPT-5.x support)",
+  },
+  {
+    id: "p48",
+    title: "Runaway recordings when the key release is missed",
+    status: "open",
+    priority: "P1",
+    kind: "bug",
+    category: "reliability",
+    pillars: ["reliability"],
+    createdAt: "2026-10-24",
+    updatedAt: "2026-10-24",
+    summary: "If Windows swallows the key release (screen lock, desktop switch, sleep), recording continues until the next press, and there is no cap. Log: 8 recordings over 15 minutes (1155 s, 4807 s, 3112 s, 2642 s, 3953 s, 2253 s, 9395 s on 2026-10-17, 3342 s on 2026-10-23 05:55); the batch fallback then fails with 400s (the audio is over 25 MB); a 37-minute recording on 2026-10-16 pasted 1 word. FIX: poll GetAsyncKeyState every ~150 ms while recording and treat keys-up as the release; cancel on session lock / suspend (WTSRegisterSessionNotification); hard cap at ~5 min with a countdown; chunk / compress long audio.",
+  },
+  {
+    id: "p49",
+    title: "Cold start on every press: mic opens on the UI thread, Deepgram connects fresh",
+    status: "open",
+    priority: "P1",
+    kind: "bug",
+    category: "live",
+    pillars: ["speed","reliability"],
+    createdAt: "2026-10-24",
+    updatedAt: "2026-10-24",
+    summary: "\"Live engine\" to session start: p50 132 ms, p90 663 ms, max 27 s. Deepgram connect: p50 1.51 s, p90 2.25 s. 49 of 500 runs were released before the socket had connected; one 0.8 s press captured nothing. FIX: keep an input stream open with a ~300 ms pre-roll ring buffer (close it after idle), open audio devices off the UI thread, pre-open / keep alive the Deepgram socket (check whether an idle socket is billed).",
+    files: ["src/audio/recorder.py","src/transcription/deepgram_client.py"],
+    linksTo: "p50 (Deepgram handshake hang)",
+  },
+  {
+    id: "p50",
+    title: "Deepgram handshake hang delays fallback up to ~23 s",
+    status: "open",
+    priority: "P1",
+    kind: "bug",
+    category: "live",
+    pillars: ["speed","reliability"],
+    createdAt: "2026-10-24",
+    updatedAt: "2026-10-24",
+    summary: "3 connect attempts x the websockets library's default 10 s open_timeout, then stop_and_transcribe waits up to 25 s. Log: 31 handshake timeouts, 9 session failures; on 2026-10-18 the key was released at 17:20:28 and the fallback ran at 17:20:51. First-word p99 is 11,859 ms. FIX: open_timeout 2-3 s; at release, if not connected within ~300 ms, send the buffered audio to batch transcription.",
+    files: ["src/transcription/deepgram_client.py"],
+    linksTo: "p49 (cold start on every press), p64 (first-word timing)",
+  },
+  {
+    id: "p51",
+    title: "Dictating wipes a copied image/file and floods Win+V history",
+    status: "open",
+    priority: "P1",
+    kind: "bug",
+    category: "reliability",
+    pillars: ["reliability","effortless"],
+    createdAt: "2026-10-24",
+    updatedAt: "2026-10-24",
+    summary: "pyperclip.paste() returns \"\" when the clipboard holds something other than text; that \"\" is then \"restored\", destroying the user's copied image or file. Every streamed chunk also lands in Clipboard History (Win+V) and can sync to the cloud (src/output/inserter.py ~82, ~161, ~191). FIX: snapshot / restore all clipboard formats via win32clipboard (or skip the restore when the original was not text); mark SpeakUp's own writes ExcludeClipboardContentFromMonitorProcessing / CanIncludeInClipboardHistory=0 / CanUploadToCloudClipboard=0.",
+    files: ["src/output/inserter.py"],
+  },
+  {
+    id: "p52",
+    title: "A failed chunk paste silently drops words",
+    status: "open",
+    priority: "P1",
+    kind: "bug",
+    category: "reliability",
+    pillars: ["reliability"],
+    createdAt: "2026-10-24",
+    updatedAt: "2026-10-24",
+    summary: "_paste_loop logs the failure and skips the chunk (src/output/inserter.py ~205-217), so those words never reach the document. Log: 2 \"OpenClipboard\" failures (2026-10-16 07:47, 2026-10-22 20:04). FIX: retry OpenClipboard ~5x with 15-20 ms backoff, then type the chunk via SendInput KEYEVENTF_UNICODE.",
+    files: ["src/output/inserter.py"],
+  },
+  {
+    id: "p53",
+    title: "Ctrl+Win collides with Windows shortcuts; hotkey field unvalidated",
+    status: "open",
+    priority: "P2",
+    kind: "bug",
+    category: "ux",
+    pillars: ["effortless","reliability"],
+    createdAt: "2026-10-24",
+    updatedAt: "2026-10-24",
+    summary: "Ctrl+Win+arrows / D / F4 / Enter / O / C (Windows' own shortcuts) start a dictation (src/hotkeys/listener.py ~80-84); an unknown hotkey name in the settings silently never fires (src/hotkeys/listener.py ~33). 69 \"Recording too short\" discards in the log. FIX: cancel if any non-hotkey key is pressed while the hotkey is held; a press-to-record hotkey field with validation and conflict warnings.",
+    files: ["src/hotkeys/listener.py"],
+  },
+  {
+    id: "p54",
+    title: "Esc doesn't cancel (README says it does)",
+    status: "open",
+    priority: "P2",
+    kind: "bug",
+    category: "ux",
+    pillars: ["effortless"],
+    createdAt: "2026-10-24",
+    updatedAt: "2026-10-24",
+    summary: "The Esc handler in src/ui/overlay.py ~295-299 needs keyboard focus, which the no-activate overlay window never gets - so Esc does nothing, though the README promises it cancels. FIX: handle Esc in the pynput listener while recording / processing.",
+    files: ["src/ui/overlay.py","src/hotkeys/listener.py","README.md"],
+  },
+  {
+    id: "p55",
+    title: "Paste can land in the wrong or an elevated window",
+    status: "open",
+    priority: "P2",
+    kind: "bug",
+    category: "reliability",
+    pillars: ["reliability","effortless"],
+    createdAt: "2026-10-24",
+    updatedAt: "2026-10-24",
+    summary: "The window focused at key press is only used for formatting, never checked at paste time. UIPI blocks pastes into admin (elevated) windows, and the clipboard is restored after 0.6 s, so the text is gone. mintty (Git Bash) does not paste on Ctrl+V. FIX: compare the foreground window at paste time; detect elevation, keep the text on the clipboard and notify; use Shift+Insert for terminal window classes.",
+    files: ["src/output/inserter.py","src/context/active_window.py"],
+  },
+  {
+    id: "p56",
+    title: "Phonetic fixer strips possessives (Vestora's -> Vestora)",
+    status: "open",
+    priority: "P2",
+    kind: "bug",
+    category: "intelligence",
+    pillars: ["accuracy"],
+    createdAt: "2026-10-24",
+    updatedAt: "2026-10-24",
+    summary: "src/services/phonetic.py ~106 / ~301-311 match the whole token, so a possessive loses its ending (\"Vestora's\" becomes \"Vestora\"). Seen 2026-10-24 13:07 and 14:24. FIX: peel off and re-attach 's / s' / s before matching; add tests.",
+    files: ["src/services/phonetic.py","tests/test_phonetic.py"],
+    linksTo: "p30 (Self-learning Phase 1: phonetic near-miss fixes)",
+  },
+  {
+    id: "p57",
+    title: "Default Mode setting does nothing in the overlay",
+    status: "open",
+    priority: "P2",
+    kind: "bug",
+    category: "ux",
+    pillars: ["effortless"],
+    createdAt: "2026-10-24",
+    updatedAt: "2026-10-24",
+    summary: "src/ui/components/mode_selector.py ~12-16 always starts on Smart; only src/main.py reads default_rewrite_mode. Compact mode hides the selector, and the last choice is not remembered.",
+    files: ["src/ui/components/mode_selector.py","src/main.py"],
+  },
+  {
+    id: "p58",
+    title: "Onboarding: mic choice not saved, no key test, live mode off by default",
+    status: "open",
+    priority: "P2",
+    kind: "bug",
+    category: "distribution",
+    pillars: ["effortless","reliability"],
+    createdAt: "2026-10-24",
+    updatedAt: "2026-10-24",
+    summary: "src/ui/components/onboarding_dialog.py ~248-259 discards the microphone the user tested; there is no input_device setting anywhere (src/audio/recorder.py ~56, src/transcription/deepgram_client.py ~133, src/transcription/realtime_client.py ~191 all use the system default). The wizard has no API-key test; transcription_realtime defaults to false; the wizard text refers to the mode bar, which is hidden.",
+    files: ["src/ui/components/onboarding_dialog.py","src/audio/recorder.py","src/transcription/deepgram_client.py","src/transcription/realtime_client.py"],
+    linksTo: "p10 (first-run onboarding)",
+  },
+  {
+    id: "p59",
+    title: "Batch transcription builds and leaks a new OpenAI client per call",
+    status: "open",
+    priority: "P2",
+    kind: "bug",
+    category: "reliability",
+    pillars: ["speed","reliability"],
+    createdAt: "2026-10-24",
+    updatedAt: "2026-10-24",
+    summary: "src/transcription/whisper_client.py ~28 creates a new client for every call. 76 \"Task exception was never retrieved ... AsyncClient.aclose ... AssertionError\" in the log, and a fresh TLS handshake on every batch dictation.",
+    files: ["src/transcription/whisper_client.py"],
+  },
+  {
+    id: "p60",
+    title: "Keep-warm ping floods the log; no rotation",
+    status: "open",
+    priority: "P3",
+    kind: "chore",
+    category: "quality",
+    pillars: ["reliability"],
+    createdAt: "2026-10-24",
+    updatedAt: "2026-10-24",
+    summary: "125,110 of 174,838 log lines (72%) are GET /v1/models from the keep-warm ping; the log file is 17.7 MB and never rotates. FIX: RotatingFileHandler ~5 MB x 3, httpx logger at WARNING, and ping only within ~10 min of the last dictation.",
+    linksTo: "p25 (keep-warm heartbeat)",
+  },
+  {
+    id: "p61",
+    title: "Auto-stop on silence ignored in live mode; thread-unsafe in batch",
+    status: "open",
+    priority: "P3",
+    kind: "bug",
+    category: "reliability",
+    pillars: ["reliability","effortless"],
+    createdAt: "2026-10-24",
+    updatedAt: "2026-10-24",
+    summary: "The silence wrapper in src/services/pipeline.py only wraps the batch recorder, so auto-stop on silence never fires in live mode; and _on_silence touches the UI from the audio thread.",
+    files: ["src/services/pipeline.py","src/audio/silence_detector.py"],
+  },
+  {
+    id: "p62",
+    title: "Smart mode formats terminal dictation as a code comment",
+    status: "open",
+    priority: "P3",
+    kind: "bug",
+    category: "intelligence",
+    pillars: ["accuracy"],
+    createdAt: "2026-10-24",
+    updatedAt: "2026-10-24",
+    summary: "src/rewrite/prompts.py ~100-103 / src/context/active_window.py ~26-37 treat terminals and VS Code as \"editor\", so a command dictated into a terminal comes back formatted as a code comment; multi-line pastes run line by line in PowerShell.",
+    files: ["src/rewrite/prompts.py","src/context/active_window.py"],
+    linksTo: "d1 (Smart auto-format mode)",
+  },
+  {
+    id: "p63",
+    title: "Preview 'Insert at Cursor' pastes into the preview window",
+    status: "open",
+    priority: "P3",
+    kind: "bug",
+    category: "ux",
+    pillars: ["effortless"],
+    createdAt: "2026-10-24",
+    updatedAt: "2026-10-24",
+    summary: "src/ui/components/preview_window.py ~70-73 pastes 50 ms after the preview window took focus, so the text goes into the preview itself rather than the app the user was in.",
+    files: ["src/ui/components/preview_window.py"],
+  },
+  {
+    id: "p64",
+    title: "First-word timing measures token arrival, not the paste",
+    status: "open",
+    priority: "P3",
+    kind: "chore",
+    category: "quality",
+    pillars: ["speed"],
+    createdAt: "2026-10-24",
+    updatedAt: "2026-10-24",
+    summary: "The pipeline logs \"First word after N ms\" when the first token ARRIVES, not when text appears on screen; and the first chunk also waits for 14 characters. Baseline (whole log, Deepgram path): p50 1,814 ms, p90 3,226 ms, p99 11,859 ms (n=455).",
+    files: ["src/services/pipeline.py"],
+    linksTo: "p25 (first-word logging), p50 (handshake hang - the p99 tail)",
+  },
+  {
+    id: "p65",
+    title: "Dictionary typo 'Supbase' boosts the wrong spelling",
+    status: "open",
+    priority: "P3",
+    kind: "bug",
+    category: "intelligence",
+    pillars: ["accuracy"],
+    createdAt: "2026-10-24",
+    updatedAt: "2026-10-24",
+    summary: "The personal dictionary holds the typo \"Supbase\"; it is sent to Deepgram as a keyterm, so the misspelling is actively boosted.",
+    linksTo: "p33 (Self-learning Phase 4: \"What I've learned\" panel - where dictionary entries become visible and editable)",
+  },
+  {
+    id: "p66",
+    title: "Move off OpenAI speech models retiring 2027-02-26",
+    status: "open",
+    priority: "P3",
+    kind: "chore",
+    category: "intelligence",
+    pillars: ["reliability","accuracy"],
+    createdAt: "2026-10-24",
+    updatedAt: "2026-10-24",
+    summary: "gpt-4o-transcribe, gpt-4o-mini-transcribe and whisper-1 shut down on 2027-02-26. Replacements: gpt-transcribe ($0.0045/min, files) and gpt-live-transcribe ($0.017/min, live). Deepgram Nova-3 streaming remains the cheapest live option ($0.0048/min, pay-as-you-go promo).",
+    linksTo: "p35 (OpenAI speech-model generation), p36 (transcription benchmark), p37 (live engine setting)",
+  },
 ];
 
-const STATUSES = ['Backlog', 'In Progress', 'Parked', 'Done'];
-const PRI_ORDER = {P1: 0, P2: 1, P3: 2};
-const KEY = id => 'speakup-backlog-' + id;
+// ═══════════════════════════════════════════════════════════════
+// Rendering + filter logic (ported from Vestora's backlog page, 2026-10-24)
+// ═══════════════════════════════════════════════════════════════
 
-function status(item) { return localStorage.getItem(KEY(item.id)) || item.s; }
+// North-star pillars. Badge text is the pillar NAME, not "P1".."P4": on
+// Vestora's page a pillar badge reads "P1" right next to a priority badge
+// that also reads "P1", and SpeakUp has four pillars to keep apart.
+const PILLARS = {
+  speed:       { n: 1, label: 'Speed',       title: 'Low lag from key release to text' },
+  accuracy:    { n: 2, label: 'Accuracy',    title: 'The right words, names and formatting' },
+  reliability: { n: 3, label: 'Reliability', title: 'A dictation is never lost or garbled' },
+  effortless:  { n: 4, label: 'Effortless',  title: "Invisible when it works, clear when it doesn't" },
+};
+
+const STATUS_VALUES = ['open', 'in-progress', 'blocked', 'parked', 'shipped', 'withdrawn'];
+const STATUS_LABELS = {
+  'open': 'Open', 'in-progress': 'In progress', 'blocked': 'Blocked',
+  'parked': 'Parked', 'shipped': 'Shipped', 'withdrawn': 'Withdrawn',
+};
+
+// ═══════════════════════════════════════════════════════════════
+// Epics — thematic grouping over the item taxonomy
+// ═══════════════════════════════════════════════════════════════
+// Every item belongs to exactly one epic, DERIVED by epicOf(): an explicit
+// `item.epic` wins, else the item's `category` is mapped below. EPICS is the
+// ordered registry; group headers and their order come from it. Reliability
+// is first on purpose: a lost or garbled dictation is the failure that makes
+// a dictation app feel worse than the one it replaces.
+const EPICS = [
+  { key: 'Reliability',         blurb: 'A dictation is never lost, garbled or pasted in the wrong place — overlap, clipboard, paste, fallbacks' },
+  { key: 'Live transcription',  blurb: 'Speech-to-text while speaking — Deepgram / OpenAI live engines, captions, connection speed' },
+  { key: 'Clean-up & accuracy', blurb: 'The rewrite step and the words it produces — models, prompts, dictionary, phonetic fixes' },
+  { key: 'Self-learning',       blurb: 'The phased roadmap for learning from the user without asking anything of them (p30–p34)' },
+  { key: 'Overlay & UX',        blurb: 'The widget, tray, settings, hotkey and everything the user sees or presses' },
+  { key: 'Tests & tooling',     blurb: 'Tests, benchmarks, logging and measurement' },
+  { key: 'Distribution',        blurb: 'Packaging, releases, onboarding, new platforms' },
+  { key: 'Other',               blurb: 'Not yet mapped to an epic' },
+];
+const EPIC_ORDER = Object.fromEntries(EPICS.map((e, i) => [e.key, i]));
+const EPIC_BLURB = Object.fromEntries(EPICS.map((e) => [e.key, e.blurb]));
+
+// category → epic (the default for everything without an explicit epic).
+const CATEGORY_EPIC = {
+  'reliability': 'Reliability',
+  'live': 'Live transcription',
+  'intelligence': 'Clean-up & accuracy',
+  'ux': 'Overlay & UX',
+  'quality': 'Tests & tooling',
+  'distribution': 'Distribution',
+};
+
+function epicOf(item) {
+  if (item.epic) return item.epic;
+  return CATEGORY_EPIC[item.category] || 'Other';
+}
+
+// Default state. Overridden by localStorage on init.
+const DEFAULT_STATE = {
+  status: 'all',
+  priority: 'all',
+  pillar: 'all',
+  kind: 'all',
+  category: 'all',
+  epic: 'all',   // Epic filter — derived thematic grouping (see epicOf)
+  bucket: 'all',
+  search: '',
+  id: '',  // "Jump to ID" prefix filter — independent of the keyword search
+  // Rolling "shipped in the last N days" window, 0 = off (kept from Vestora's
+  // page for a future "Shipped · 30d" tile; no control sets it today).
+  shippedWithin: 0,
+  sort: 'default',
+  group: 'epic',  // Default view: items organised into their epics, epics in priority order
+  expanded: [],  // ids of expanded items
+  filtersOpen: false,  // advanced filters collapsed by default
+};
+const STORAGE_KEY = 'speakup.backlog.state.v1';
+const STATE = { ...DEFAULT_STATE };
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    for (const k of Object.keys(DEFAULT_STATE)) {
+      if (parsed[k] !== undefined) STATE[k] = parsed[k];
+    }
+  } catch {}
+  // Restore expanded items
+  for (const id of (STATE.expanded || [])) {
+    const it = ITEMS.find((x) => x.id === id);
+    if (it) it._expanded = true;
+  }
+}
+
+function saveState() {
+  try {
+    STATE.expanded = ITEMS.filter((i) => i._expanded).map((i) => i.id);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(STATE));
+  } catch {}
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Per-item status changes saved in THIS browser
+// ═══════════════════════════════════════════════════════════════
+// The old SpeakUp page let you change an item's status from the list and kept
+// that choice in localStorage under 'speakup-backlog-' + id, as a plain word
+// ('Backlog' / 'In Progress' / 'Parked' / 'Done'). Vestora's page has no such
+// picker; it is kept here so nobody's saved statuses vanish.
+//
+// New format, same key: {"s": status, "base": the file's status when the
+// change was made}. A saved change applies ONLY while the file still says
+// `base` — once the file itself is re-statused, the file wins and the stale
+// browser value is forgotten. Without `base`, a status chosen in the browser
+// weeks ago would silently mask every later update written into this file.
+const STATUS_KEY_PREFIX = 'speakup-backlog-';
+const LEGACY_STATUS = { 'Backlog': 'open', 'In Progress': 'in-progress', 'Parked': 'parked', 'Done': 'shipped' };
+// What the OLD page's file said for the items whose status the 2026-10-24
+// rebuild changed. A legacy saved value for one of these was set against the
+// old status, so it is dropped (the file has moved on); for every other item
+// the old and new file statuses are the same.
+const LEGACY_BASE = { p41: 'open', p42: 'open', p44: 'open', p45: 'parked' };
+
+function todayIso() { return new Date().toISOString().slice(0, 10); }
+
+function readStatusOverride(item) {
+  let raw = null;
+  try { raw = localStorage.getItem(STATUS_KEY_PREFIX + item.id); } catch { return null; }
+  if (!raw) return null;
+  if (LEGACY_STATUS[raw]) {
+    // Migrate the old plain-word value to the new format, once.
+    const o = { s: LEGACY_STATUS[raw], base: LEGACY_BASE[item.id] || item._fileStatus, at: 'migrated' };
+    try { localStorage.setItem(STATUS_KEY_PREFIX + item.id, JSON.stringify(o)); } catch {}
+    return o;
+  }
+  try {
+    const o = JSON.parse(raw);
+    return o && typeof o.s === 'string' ? o : null;
+  } catch { return null; }
+}
+
+function forgetStatusOverride(id) {
+  try { localStorage.removeItem(STATUS_KEY_PREFIX + id); } catch {}
+}
+
+function applyStatusOverrides() {
+  for (const item of ITEMS) {
+    item._fileStatus = item.status;
+    item._localStatus = false;
+    const o = readStatusOverride(item);
+    if (!o) continue;
+    if (o.base === item._fileStatus && o.s !== item._fileStatus && STATUS_VALUES.includes(o.s)) {
+      item.status = o.s;
+      item._localStatus = true;
+    } else {
+      forgetStatusOverride(item.id);  // file has caught up or moved on
+    }
+  }
+}
+
+function setLocalStatus(id, value) {
+  const item = ITEMS.find((x) => x.id === id);
+  if (!item || !STATUS_VALUES.includes(value)) return;
+  if (value === item._fileStatus) {
+    forgetStatusOverride(id);
+    item._localStatus = false;
+  } else {
+    try {
+      localStorage.setItem(STATUS_KEY_PREFIX + id, JSON.stringify({ s: value, base: item._fileStatus, at: todayIso() }));
+    } catch {}
+    item._localStatus = true;
+  }
+  item.status = value;
+  render();
+  flashToast(`${id}: ${STATUS_LABELS[value]}${item._localStatus ? ' (saved in this browser)' : ' (matches the file)'}`);
+}
+
+function clearStatusEdits() {
+  const n = ITEMS.filter((i) => i._localStatus).length;
+  if (!n) { flashToast('No status changes saved in this browser'); return; }
+  if (typeof confirm === 'function' && !confirm(`Forget ${n} status change(s) saved in this browser?`)) return;
+  for (const item of ITEMS) {
+    forgetStatusOverride(item.id);
+    item.status = item._fileStatus;
+    item._localStatus = false;
+  }
+  render();
+}
+
+function updateStatusEditsCount() {
+  const el = document.getElementById('status-edits-count');
+  if (!el) return;
+  const n = ITEMS.filter((i) => i._localStatus).length;
+  el.textContent = n ? String(n) : '';
+  el.classList.toggle('on', n > 0);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Light markdown: auto-link bare URLs, inline `code`, and **bold**.
+function lightMarkdown(text) {
+  let out = escapeHtml(text);
+  // inline code first (so URLs inside backticks don't get linkified)
+  out = out.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // bold
+  out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  // bare URLs
+  out = out.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  return out;
+}
+
+// Highlight search matches in a small region. Skips inside tags.
+function highlightSearch(html, query) {
+  if (!query) return html;
+  const safeQ = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`(${safeQ})`, 'gi');
+  // Skip text inside tags by splitting on tag boundaries.
+  return html.split(/(<[^>]+>)/g).map((chunk) => {
+    if (chunk.startsWith('<')) return chunk;
+    return chunk.replace(re, '<mark>$1</mark>');
+  }).join('');
+}
+
+function renderItem(item) {
+  const cls = ['item'];
+  if (item.status === 'shipped') cls.push('shipped');
+  if (item._expanded) cls.push('expanded');
+
+  if (isStaleOpen(item)) cls.push('stale');
+
+  const meta = [];
+  const bkt = bucketOf(item);
+  meta.push(`<span class="badge bucket-${bkt}">${BUCKET_LABELS[bkt]}</span>`);
+  meta.push(`<span class="badge ${escapeHtml(item.priority.toLowerCase())}">${escapeHtml(item.priority)}</span>`);
+  if (item.status !== 'open') meta.push(`<span class="badge ${escapeHtml(item.status)}">${escapeHtml(STATUS_LABELS[item.status] || item.status)}</span>`);
+  if (item._localStatus) meta.push(`<span class="badge local-edit" title="Status changed in this browser; the file says ${escapeHtml(STATUS_LABELS[item._fileStatus] || item._fileStatus)}">edited here</span>`);
+  if (isStaleOpen(item)) meta.push(`<span class="badge stale-badge" title="Open with no update in ${STALE_OPEN_DAYS}+ days">stale</span>`);
+  const kind = item.kind || 'unknown';
+  meta.push(`<span class="badge kind-${escapeHtml(kind)}">${escapeHtml(kind)}</span>`);
+  for (const p of (item.pillars || [])) {
+    const pl = PILLARS[p];
+    if (!pl) continue; // unknown pillar slug — skip the badge rather than crash the whole list render
+    meta.push(`<span class="badge pillar-${pl.n}" title="${escapeHtml(pl.title)}">${escapeHtml(pl.label)}</span>`);
+  }
+  if (item.category) {
+    meta.push(`<span class="badge">${escapeHtml(item.category)}</span>`);
+  }
+
+  let body = '';
+  // Plain-language layer (from Vestora's page): what the item is, what fixing
+  // it buys, and what leaving it costs. Optional; shown above the detail.
+  if (item.plainSummary || item.benefit || item.ifIgnored) {
+    body += `<div class="plain">`;
+    if (item.plainSummary) body += `<p>${lightMarkdown(item.plainSummary)}</p>`;
+    if (item.benefit) body += `<p class="benefit"><strong>What you get:</strong> ${lightMarkdown(item.benefit)}</p>`;
+    if (item.ifIgnored) body += `<p class="ifignored"><strong>If we leave it:</strong> ${lightMarkdown(item.ifIgnored)}</p>`;
+    body += `</div>`;
+  }
+  if (item.summary) body += `${item.plainSummary ? '<h4>Technical detail</h4>' : ''}<p>${lightMarkdown(item.summary)}</p>`;
+  if (item.rationale) body += `<h4>Why this matters</h4><p>${lightMarkdown(item.rationale)}</p>`;
+  if (item.plan) body += `<h4>Plan</h4><p>${lightMarkdown(item.plan)}</p>`;
+  if (item.trigger) body += `<h4>Blocked on</h4><p>${lightMarkdown(item.trigger)}</p>`;
+  if (item.blockedReason) body += `<h4>Why it is blocked</h4><p>${lightMarkdown(item.blockedReason)}</p>`;
+  if (item.linksTo) body += `<h4>Related</h4><p>${lightMarkdown(item.linksTo)}</p>`;
+  // Catch-all for every OTHER text field an item carries (shipNote,
+  // progressNote, ...): rendering whatever is there means a new field is
+  // visible the moment it is written, instead of silently dropped.
+  const RENDERED_ELSEWHERE = new Set([
+    'id', 'title', 'status', 'priority', 'pillars', 'category',
+    'epic', 'kind', 'summary', 'rationale', 'plan', 'files', 'trigger',
+    'shippedAt', 'shippedBy', 'createdAt', 'updatedAt', 'closedAt',
+    'plainSummary', 'benefit', 'ifIgnored', 'linksTo', 'blockedReason',
+  ]);
+  const extras = Object.keys(item)
+    .filter((k) => !k.startsWith('_') && !RENDERED_ELSEWHERE.has(k) && typeof item[k] === 'string' && item[k].trim());
+  if (extras.length) {
+    body += `<h4>Notes</h4><ul>${extras.map((k) => {
+      // camelCase → "Camel case", so an ad-hoc key still reads as a label.
+      const label = k.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
+      return `<li><strong>${escapeHtml(label)}:</strong> ${lightMarkdown(item[k])}</li>`;
+    }).join('')}</ul>`;
+  }
+  if (item.files && item.files.length) {
+    body += `<h4>Files</h4><ul>${item.files.map((f) => `<li><code>${escapeHtml(f)}</code></li>`).join('')}</ul>`;
+  }
+  const facts = [];
+  if (item.createdAt) facts.push(`<strong>Created:</strong> ${escapeHtml(item.createdAt)} <span class="rel">(${relDays(item.createdAt)})</span>`);
+  if (item.updatedAt) facts.push(`<strong>Updated:</strong> ${escapeHtml(item.updatedAt)} <span class="rel">(${relDays(item.updatedAt)})</span>`);
+  const closed = closedOfItem(item);
+  if (item.shippedAt) facts.push(`<strong>Shipped:</strong> ${escapeHtml(item.shippedAt)} <code>${escapeHtml(item.shippedBy || '')}</code>`);
+  else if (item.shippedBy) facts.push(`<strong>Shipped in:</strong> <code>${escapeHtml(item.shippedBy)}</code>`);
+  else if (closed) facts.push(`<strong>Closed:</strong> ${escapeHtml(closed)} <span class="rel">(${relDays(closed)})</span>`);
+  facts.push(`<strong>Permalink:</strong> <a href="#${escapeHtml(item.id)}">#${escapeHtml(item.id)}</a> <button class="copy-link" onclick="event.stopPropagation();copyPermalink('${escapeHtml(item.id)}')" title="Copy link to this item">copy</button>`);
+  body += `<h4>Facts</h4><p>${facts.join('<br />')}</p>`;
+
+  // Apply search-highlight to the rendered body (skip inside tags)
+  if (STATE.search) body = highlightSearch(body, STATE.search);
+
+  // Status picker — appended AFTER highlighting so no <mark> lands in an <option>.
+  const options = STATUS_VALUES.map((s) => `<option value="${s}"${s === item.status ? ' selected' : ''}>${escapeHtml(STATUS_LABELS[s])}</option>`).join('');
+  const fileNote = item._localStatus
+    ? ` <span class="rel">(changed in this browser — the file says ${escapeHtml(STATUS_LABELS[item._fileStatus] || item._fileStatus)})</span>`
+    : ' <span class="rel">(a change here is saved in this browser only)</span>';
+  body += `<p><strong>Status:</strong> <select class="status-pick" aria-label="Status of ${escapeHtml(item.id)}" onclick="event.stopPropagation()" onchange="setLocalStatus('${escapeHtml(item.id)}', this.value)">${options}</select>${fileNote}</p>`;
+
+  let title = escapeHtml(item.title);
+  if (STATE.search) title = highlightSearch(title, STATE.search);
+
+  return `
+    <div class="${cls.join(' ')}" data-id="${escapeHtml(item.id)}" id="item-${escapeHtml(item.id)}">
+      <div class="item-head" onclick="toggleItem('${escapeHtml(item.id)}')">
+        <div class="item-head-top">
+          <span class="item-id" data-copy="${escapeHtml(item.id)}" title="Click to copy this id" onclick="copyFromAttr(event, this, 'Id copied')">${escapeHtml(item.id)}</span>
+          <span class="item-meta">${meta.join('')}</span>
+          ${whenChip(item)}
+        </div>
+        <div class="item-title" data-copy="${escapeHtml(item.title || '')}" title="Click to copy this title" onclick="copyFromAttr(event, this, 'Title copied')">${title}</div>
+      </div>
+      <div class="item-body">${body}</div>
+    </div>
+  `;
+}
+
+// Compact "when" chip for the collapsed head: shipped/closed items show when
+// they closed; open items show when last touched (only if a date exists — old
+// items predate lifecycle-date tracking and simply show nothing).
+function whenChip(item) {
+  if (item.status === 'shipped' || item.status === 'withdrawn') {
+    const c = closedOfItem(item);
+    return c ? `<span class="item-when done" title="${item.status} ${c}">${item.status === 'withdrawn' ? '✕' : '✓'} ${relDays(c)}</span>` : '';
+  }
+  const ref = item.updatedAt || item.createdAt;
+  return ref ? `<span class="item-when" title="last activity ${ref}">${relDays(ref)}</span>` : '';
+}
+
+// Click an item's id or title to copy it as plain text. The text comes from
+// data-copy, never from the element's HTML, so a search highlight inside the
+// title is not copied. Does not open/close the item.
+function copyFromAttr(event, el, label) {
+  event.stopPropagation();
+  copyText(el.dataset.copy || '', label);
+}
+function copyText(text, label) {
+  const done = () => flashToast(label + ': ' + text);
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(done).catch(() => copyTextFallback(text) && done());
+  } else if (copyTextFallback(text)) {
+    done();
+  }
+}
+// Pages opened from disk or over plain http may not get the clipboard API.
+function copyTextFallback(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch { ok = false; }
+  document.body.removeChild(ta);
+  if (!ok) flashToast('Could not copy - select the text instead');
+  return ok;
+}
+// Copy a shareable permalink (URL + #id) to the clipboard.
+function copyPermalink(id) {
+  const url = location.origin + location.pathname + location.search + '#' + id;
+  navigator.clipboard?.writeText(url).then(() => flashToast('Link copied')).catch(() => {});
+}
+function flashToast(msg) {
+  let t = document.getElementById('toast');
+  if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t); }
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(flashToast._t);
+  flashToast._t = setTimeout(() => t.classList.remove('show'), 1600);
+}
+
+// ── Bucket classification (Issue / Enhancement / Tech-Infra) ──
+// ISSUE = something is wrong for the user; ENHANCEMENT = new capability or
+// polish; TECH/INFRA = tests, tooling, release plumbing — not broken, it
+// strengthens the foundation. Derived from `kind`; BUCKET_OVERRIDE is for the
+// rare item the rule mis-buckets. (Vestora's fourth bucket, "user-data gap",
+// has no SpeakUp equivalent and was dropped.)
+const BUCKET_OVERRIDE = {};
+const BUCKET_FIX_RE = /^(fix|stop|correct|repair|drop|don'?t|remove|prevent|exclude|de-?dup)/i;
+function bucketOf(item) {
+  if (BUCKET_OVERRIDE[item.id]) return BUCKET_OVERRIDE[item.id];
+  if (item.kind === 'feature') return 'enhancement';
+  if (item.kind === 'test' || item.kind === 'chore') return 'tech';
+  if (item.kind === 'bug') return 'issue';
+  if (item.category === 'quality') return 'tech';
+  return BUCKET_FIX_RE.test(item.title || '') ? 'issue' : 'enhancement';
+}
+const BUCKET_LABELS = { issue: 'Issue', enhancement: 'Enhancement', tech: 'Tech/Infra' };
+
+/**
+ * Everything an item says, flattened for keyword search. Deliberately GENERIC
+ * over the item's own keys rather than a hand-listed set, so a newly-invented
+ * field is searchable the moment it is written.
+ */
+function searchHaystack(item) {
+  const parts = [epicOf(item), STATUS_LABELS[item.status] || ''];
+  for (const p of (item.pillars || [])) if (PILLARS[p]) parts.push(PILLARS[p].label);
+  for (const [k, v] of Object.entries(item)) {
+    if (k.startsWith('_')) continue;                 // internal UI state (_expanded)
+    if (typeof v === 'string') parts.push(v);
+    else if (Array.isArray(v)) parts.push(v.filter((x) => typeof x === 'string').join(' '));
+  }
+  return parts.filter(Boolean).join(' ').toLowerCase();
+}
+
+/**
+ * "Not closed" = open + in progress + blocked + parked. Parked is deferred,
+ * not done, so it is not closed; shipped and withdrawn are.
+ */
+const UNFINISHED_STATUSES = new Set(['open', 'in-progress', 'blocked', 'parked']);
+
+function matchesFilter(item) {
+  if (STATE.bucket !== 'all' && bucketOf(item) !== STATE.bucket) return false;
+  if (STATE.status === 'unfinished') {
+    if (!UNFINISHED_STATUSES.has(item.status)) return false;
+  } else if (STATE.status !== 'all' && item.status !== STATE.status) return false;
+  if (STATE.priority !== 'all' && item.priority !== STATE.priority) return false;
+  if (STATE.pillar !== 'all' && !(item.pillars || []).includes(STATE.pillar)) return false;
+  if (STATE.kind !== 'all' && (item.kind || 'unknown') !== STATE.kind) return false;
+  if (STATE.category !== 'all' && item.category !== STATE.category) return false;
+  if (STATE.epic !== 'all' && epicOf(item) !== STATE.epic) return false;
+  if (STATE.shippedWithin) {
+    const closed = closedOfItem(item);
+    if (!closed || closed < isoDaysAgo(STATE.shippedWithin)) return false;
+  }
+  if (STATE.id) {
+    // "Jump to ID" — prefix match (case-insensitive): "p4" shows p4 and p40-p49.
+    if (!item.id.toLowerCase().startsWith(STATE.id.toLowerCase())) return false;
+  }
+  if (STATE.search) {
+    const q = STATE.search.toLowerCase();
+    const haystack = searchHaystack(item);
+    if (!haystack.includes(q)) return false;
+  }
+  return true;
+}
+
+// Sort helpers
+const PRI_ORDER = { 'P1': 1, 'P2': 2, 'P3': 3 };
+// In progress first: it is the work already under way.
+const STATUS_ORDER = { 'in-progress': 0, 'open': 1, 'blocked': 2, 'parked': 3, 'shipped': 4, 'withdrawn': 5 };
+
+// Old ids are compared by their number so p2 < p2b < p10 rather than p10 < p2.
+function compareIds(a, b) { return a.id.localeCompare(b.id, undefined, { numeric: true }); }
+
+function sortItems(items) {
+  const sorted = [...items];
+  switch (STATE.sort) {
+    case 'id':
+      sorted.sort(compareIds);
+      break;
+    case 'priority':
+      sorted.sort((a, b) => ((PRI_ORDER[a.priority] ?? 9) - (PRI_ORDER[b.priority] ?? 9)) || compareIds(a, b));
+      break;
+    case 'status':
+      sorted.sort((a, b) => ((STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9)) || compareIds(a, b));
+      break;
+    case 'shipped':
+      sorted.sort((a, b) => (b.shippedAt || '').localeCompare(a.shippedAt || ''));
+      break;
+    case 'updated':
+      sorted.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+      break;
+    case 'closed':
+      sorted.sort((a, b) => (closedOfItem(b) || '').localeCompare(closedOfItem(a) || ''));
+      break;
+    case 'default':
+    default:
+      // not-closed first by priority, then shipped/withdrawn
+      sorted.sort((a, b) => {
+        const sa = STATUS_ORDER[a.status] ?? 9;
+        const sb = STATUS_ORDER[b.status] ?? 9;
+        if (sa !== sb) return sa - sb;
+        return ((PRI_ORDER[a.priority] ?? 9) - (PRI_ORDER[b.priority] ?? 9)) || compareIds(a, b);
+      });
+  }
+  return sorted;
+}
+
+function groupItems(items) {
+  if (STATE.group === 'none') return [{ key: null, items }];
+  const groups = new Map();
+  for (const it of items) {
+    let key;
+    if (STATE.group === 'priority') key = it.priority || 'Unspecified';
+    else if (STATE.group === 'status') key = STATUS_LABELS[it.status] || it.status || 'Unspecified';
+    else if (STATE.group === 'category') key = it.category || 'Uncategorised';
+    else if (STATE.group === 'kind') key = it.kind || 'unknown';
+    else if (STATE.group === 'epic') key = epicOf(it);
+    else key = 'All';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(it);
+  }
+  const STATUS_LABEL_ORDER = Object.fromEntries(Object.entries(STATUS_ORDER).map(([s, n]) => [STATUS_LABELS[s], n]));
+  const KIND_ORDER = { bug: 0, feature: 1, chore: 2, test: 3 };
+  // Sort groups by a sensible default per group type
+  const groupOrder = {
+    priority: (k) => PRI_ORDER[k] ?? 9,
+    status: (k) => STATUS_LABEL_ORDER[k] ?? 9,
+    category: (k) => k.toLowerCase(),
+    kind: (k) => KIND_ORDER[k] ?? 9,
+    epic: (k) => EPIC_ORDER[k] ?? 99,
+  };
+  const sorter = groupOrder[STATE.group];
+  const entries = [...groups.entries()].sort((a, b) => {
+    const ka = sorter ? sorter(a[0]) : a[0];
+    const kb = sorter ? sorter(b[0]) : b[0];
+    if (typeof ka === 'number' && typeof kb === 'number') return ka - kb;
+    return String(ka).localeCompare(String(kb));
+  });
+  return entries.map(([key, items]) => ({ key, items }));
+}
 
 function render() {
-  const q = document.getElementById('search').value.toLowerCase();
-  const fp = document.getElementById('fPriority').value;
-  const fsChecked = Array.from(
-    document.querySelectorAll('#fStatus input:checked')
-  ).map(c => c.value);
-  const fc = document.getElementById('fCategory').value;
+  const visible = sortItems(ITEMS.filter(matchesFilter));
+  const root = document.getElementById('items');
+  if (visible.length === 0) {
+    root.innerHTML = '<div class="empty">No items match current filters. Press <kbd>r</kbd> or click <strong>Reset</strong>.</div>';
+  } else {
+    const groups = groupItems(visible);
+    root.innerHTML = groups.map(({ key, items }) => {
+      let header = '';
+      if (key !== null) {
+        const openN = items.filter((i) => UNFINISHED_STATUSES.has(i.status)).length;
+        const countTxt = openN && openN !== items.length
+          ? `${items.length} · ${openN} not closed`
+          : `${items.length}`;
+        const blurb = STATE.group === 'epic' && EPIC_BLURB[key]
+          ? `<span class="group-blurb">${escapeHtml(EPIC_BLURB[key])}</span>` : '';
+        header = `<div class="group-header">${escapeHtml(key)} <span class="group-count">(${countTxt})</span>${blurb}</div>`;
+      }
+      return header + items.map(renderItem).join('');
+    }).join('');
+  }
+  renderStats();
+  updateChipCounts();
+  syncSearchClearButton();
+  updateFilterBadge();
+  updateStatusEditsCount();
+}
 
-  const rows = ITEMS
-    .map(it => ({...it, _s: status(it)}))
-    .filter(it => (!fp || it.p === fp) && fsChecked.includes(it._s) && (!fc || it.c === fc)
-      && (!q || (it.t + ' ' + it.n + ' ' + it.c).toLowerCase().includes(q)))
-    .sort((a, b) => (PRI_ORDER[a.p] - PRI_ORDER[b.p]) || a.id.localeCompare(b.id));
+/**
+ * Show how many ADVANCED filters are narrowing the list. With the pane
+ * collapsed those chips are off-screen, so without this a filtered view would
+ * look like missing data. Search is excluded — it's always visible.
+ */
+function updateFilterBadge() {
+  const dims = ['bucket', 'status', 'priority', 'pillar', 'kind', 'epic', 'category'];
+  let n = dims.filter((d) => STATE[d] && STATE[d] !== 'all').length;
+  if (STATE.id) n++;  // "Jump to ID" also lives in the advanced block
+  const badge = document.getElementById('filters-count');
+  if (!badge) return;
+  badge.textContent = n ? String(n) : '';
+  badge.classList.toggle('on', n > 0);
+}
 
-  const tbody = document.getElementById('rows');
-  tbody.innerHTML = rows.length ? rows.map(it => `
-    <tr class="${it._s === 'Done' ? 'done' : ''}">
-      <td class="title">${esc(it.t)}<div class="notes">${esc(it.n)}</div></td>
-      <td><span class="badge cat">${esc(it.c)}</span></td>
-      <td><span class="badge pri-${it.p}">${it.p}</span></td>
-      <td>
-        <select class="status st-${it._s}" data-id="${it.id}">
-          ${STATUSES.map(s => `<option ${s === it._s ? 'selected' : ''}>${s}</option>`).join('')}
-        </select>
-      </td>
-    </tr>`).join('') : `<tr><td colspan="4" class="empty">No items match your filters.</td></tr>`;
+/** Open/close the advanced filter block (persisted). */
+function setFiltersOpen(open) {
+  STATE.filtersOpen = !!open;
+  document.getElementById('filters').classList.toggle('open', !!open);
+  document.getElementById('filters-toggle').setAttribute('aria-expanded', open ? 'true' : 'false');
+}
 
-  tbody.querySelectorAll('select.status').forEach(sel => {
-    sel.addEventListener('change', e => {
-      localStorage.setItem(KEY(e.target.dataset.id), e.target.value);
+/**
+ * ONE TABLE OF WHAT IS NOT CLOSED, by priority and status. NOT CLOSED = open,
+ * in progress, blocked, parked. Every row sums to its Total, every column to
+ * the All row, and every number filters the list to exactly the set it counts
+ * (a zero is a readout, not a button).
+ */
+const NOT_CLOSED_COLUMNS = [
+  ['open', 'Open'], ['in-progress', 'In progress'], ['blocked', 'Blocked'], ['parked', 'Parked'],
+];
+function renderStats() {
+  const notClosed = ITEMS.filter((i) => UNFINISHED_STATUSES.has(i.status));
+  const known = new Set(['P1', 'P2', 'P3']);
+  // A priority outside P1-P3 gets its own row rather than silently dropping out of the sums.
+  const prios = ['P1', 'P2', 'P3', ...[...new Set(notClosed.map((i) => i.priority || '(none)'))].filter((p) => !known.has(p)).sort()];
+  const filters = [];
+  const cell = (n, filter, label, cls = '') => {
+    if (n === 0) return `<td class="num zero${cls}" title="None">0</td>`;
+    const idx = filters.push(filter) - 1;
+    const active = isStatFilterActive(filter) ? ' active' : '';
+    return `<td class="num${cls}"><button type="button" class="cellbtn${active}" data-mcell="${idx}" aria-pressed="${active ? 'true' : 'false'}" title="Show: ${escapeHtml(label)}">${n}</button></td>`;
+  };
+  const prioFilter = (p) => (p === '(none)' ? undefined : p);
+  const head = `<tr><th scope="col">Not closed</th>${NOT_CLOSED_COLUMNS.map(([, l]) => `<th scope="col">${escapeHtml(l)}</th>`).join('')}<th scope="col">Total</th></tr>`;
+  const rowFor = (label, rows, priority, rowCls) => {
+    const cells = NOT_CLOSED_COLUMNS.map(([st, stLabel]) => {
+      const f = { status: st };
+      if (priority) f.priority = priority;
+      return cell(rows.filter((i) => i.status === st).length, f, `${label} - ${stLabel}`);
+    }).join('');
+    const tf = { status: 'unfinished' };
+    if (priority) tf.priority = priority;
+    return `<tr class="${rowCls}"><th scope="row">${escapeHtml(label)}</th>${cells}${cell(rows.length, tf, `${label} - not closed`, ' total')}</tr>`;
+  };
+  const body = prios.map((p) => rowFor(p, notClosed.filter((i) => (i.priority || '(none)') === p), prioFilter(p), p.toLowerCase())).join('')
+    + rowFor('All', notClosed, null, 'all');
+  const shipped = ITEMS.filter((i) => i.status === 'shipped').length;
+  const shippedFilter = { status: 'shipped' };
+  const shippedActive = isStatFilterActive(shippedFilter) ? ' active' : '';
+  const shippedIdx = filters.push(shippedFilter) - 1;
+  document.getElementById('stats').innerHTML =
+    `<table class="status-matrix" aria-label="Items not closed, by priority and status"><thead>${head}</thead><tbody>${body}</tbody></table>`
+    + `<p style="margin:6px 0 0;font-size:12px;color:var(--muted)">${ITEMS.length} items in all · <button type="button" class="cellbtn${shippedActive}" style="all:unset;cursor:pointer;text-decoration:underline dotted" data-mcell="${shippedIdx}" title="Show: shipped">${shipped} shipped</button></p>`;
+  document.querySelectorAll('#stats [data-mcell]').forEach((el) => {
+    el.addEventListener('click', () => applyStatFilter(filters[Number(el.dataset.mcell)]));
+  });
+}
+
+/** The filter dimensions a stat tile owns — everything it must clear to make
+ *  the resulting list match the number that was clicked. */
+const STAT_FILTER_DIMS = ['bucket', 'status', 'priority', 'pillar', 'kind', 'category', 'epic', 'id', 'search', 'shippedWithin'];
+
+/**
+ * Is the board currently showing exactly what this tile counts? Requires an
+ * EXACT match — every dimension the tile sets is set, and every other one is
+ * cleared — so a tile never lights up over a view narrower than its number.
+ */
+function isStatFilterActive(filter) {
+  return STAT_FILTER_DIMS.every((d) => {
+    const want = Object.prototype.hasOwnProperty.call(filter, d) ? filter[d] : DEFAULT_STATE[d];
+    return STATE[d] === want;
+  });
+}
+
+/**
+ * Apply a tile's filter, CLEARING every other dimension first — tile counts
+ * are over ALL items, so a leftover chip would make the list contradict the
+ * number just clicked. Sort, grouping and expansion are view preferences and
+ * are kept. Clicking the ACTIVE tile toggles back to showing everything.
+ */
+function applyStatFilter(filter) {
+  const alreadyActive = isStatFilterActive(filter);
+  STAT_FILTER_DIMS.forEach((d) => { STATE[d] = DEFAULT_STATE[d]; });
+  if (!alreadyActive) Object.assign(STATE, filter);
+  setFiltersOpen(false);
+  saveState();
+  render();
+  syncControlsFromState();
+  document.getElementById('items')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/**
+ * Push STATE back into the visible controls (chips, search box, ID jump), so
+ * a chip row never shows "all" while the list is filtered by a stat tile.
+ */
+function syncControlsFromState() {
+  ['bucket', 'status', 'priority', 'pillar', 'kind', 'category', 'epic']
+    .forEach((f) => setActiveChip(f, STATE[f]));
+  const searchEl = document.getElementById('search');
+  if (searchEl) searchEl.value = STATE.search || '';
+  const idEl = document.getElementById('id-jump');
+  if (idEl) {
+    idEl.value = STATE.id || '';
+    idEl.parentElement?.classList.toggle('has-text', !!STATE.id);
+  }
+  syncSearchClearButton();
+  updateFilterBadge();
+}
+
+// ── Date helpers (lifecycle dates) ──
+function isoDaysAgo(n) {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+function closedOfItem(i) { return i.closedAt || i.shippedAt || null; }
+// Most-recent lifecycle date for an item (for sorting / "activity" display).
+function lastActivity(i) { return i.updatedAt || closedOfItem(i) || i.createdAt || ''; }
+// Whole-day difference between an ISO date (YYYY-MM-DD) and today.
+function daysSince(iso) {
+  if (!iso) return null;
+  const then = new Date(iso + 'T00:00:00');
+  if (isNaN(then)) return null;
+  return Math.floor((Date.now() - then.getTime()) / 86400000);
+}
+// "today" / "3d ago" / "5w ago" / "4mo ago" / "1y ago".
+function relDays(iso) {
+  const d = daysSince(iso);
+  if (d === null) return '';
+  if (d <= 0) return 'today';
+  if (d === 1) return 'yesterday';
+  if (d < 14) return `${d}d ago`;
+  if (d < 60) return `${Math.round(d / 7)}w ago`;
+  if (d < 365) return `${Math.round(d / 30)}mo ago`;
+  return `${(d / 365).toFixed(1)}y ago`;
+}
+// Open items with a known date that have gone stale (no update in 60d).
+const STALE_OPEN_DAYS = 60;
+function isStaleOpen(i) {
+  if (i.status !== 'open') return false;
+  const ref = i.updatedAt || i.createdAt;
+  const d = daysSince(ref);
+  return d !== null && d >= STALE_OPEN_DAYS;
+}
+
+function updateChipCounts() {
+  // "If I clicked this chip, how many items would I see?" — every OTHER active
+  // filter still applies and only this chip's own dimension is swapped. It
+  // delegates to matchesFilter on a temporarily-swapped STATE, so the counts
+  // can never drift from the filter they describe.
+  document.querySelectorAll('.chip').forEach((chip) => {
+    const dim = chip.dataset.filter;
+    const value = chip.dataset.value;
+    const countEl = chip.querySelector('.count');
+    if (!countEl || !dim) return;
+    const saved = STATE[dim];
+    STATE[dim] = value;
+    let n;
+    try {
+      n = ITEMS.filter(matchesFilter).length;
+    } finally {
+      STATE[dim] = saved;   // restore even if matchesFilter throws
+    }
+    countEl.textContent = `(${n})`;
+  });
+}
+
+function toggleItem(id) {
+  const it = ITEMS.find((x) => x.id === id);
+  if (it) {
+    it._expanded = !it._expanded;
+    saveState();
+    render();
+  }
+}
+
+function syncSearchClearButton() {
+  const wrap = document.querySelector('.search-wrap');
+  if (!wrap) return;
+  if (STATE.search) wrap.classList.add('has-text');
+  else wrap.classList.remove('has-text');
+}
+
+// Build category chips dynamically from items so we never miss one.
+function buildCategoryChips() {
+  const root = document.getElementById('category-chips');
+  if (!root) return;
+  const cats = [...new Set(ITEMS.map((i) => i.category).filter(Boolean))].sort();
+  const allActive = STATE.category === 'all' ? 'active' : '';
+  root.innerHTML = `<button class="chip ${allActive}" data-filter="category" data-value="all">All <span class="count"></span></button>`
+    + cats.map((c) => {
+      const active = STATE.category === c ? 'active' : '';
+      return `<button class="chip ${active}" data-filter="category" data-value="${escapeHtml(c)}">${escapeHtml(c)} <span class="count"></span></button>`;
+    }).join('');
+  root.querySelectorAll('.chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      STATE.category = chip.dataset.value;
+      root.querySelectorAll('.chip').forEach((c) => c.classList.remove('active'));
+      chip.classList.add('active');
+      saveState();
       render();
     });
   });
-  renderStats();
 }
 
-function renderStats() {
-  const all = ITEMS.map(it => ({...it, _s: status(it)}));
-  const by = s => all.filter(it => it._s === s).length;
-  const open = all.filter(it => it._s !== 'Done' && it._s !== 'Parked').length;
-  document.getElementById('stats').innerHTML = [
-    ['Total', all.length], ['Open', open], ['In Progress', by('In Progress')],
-    ['Parked', by('Parked')], ['Done', by('Done')],
-    ['P1 open', all.filter(it => it._s !== 'Done' && it._s !== 'Parked' && it.p === 'P1').length],
-  ].map(([l, n]) => `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
+// Build epic chips from the EPICS registry, in registry order, skipping any
+// epic with no items (so the row only shows epics that actually exist).
+function buildEpicChips() {
+  const root = document.getElementById('epic-chips');
+  if (!root) return;
+  const present = new Set(ITEMS.map(epicOf));
+  const epics = EPICS.map((e) => e.key).filter((k) => present.has(k));
+  const allActive = STATE.epic === 'all' ? 'active' : '';
+  root.innerHTML = `<button class="chip ${allActive}" data-filter="epic" data-value="all">All <span class="count"></span></button>`
+    + epics.map((e) => {
+      const active = STATE.epic === e ? 'active' : '';
+      return `<button class="chip ${active}" data-filter="epic" data-value="${escapeHtml(e)}" title="${escapeHtml(EPIC_BLURB[e] || '')}">${escapeHtml(e)} <span class="count"></span></button>`;
+    }).join('');
+  root.querySelectorAll('.chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      STATE.epic = chip.dataset.value;
+      root.querySelectorAll('.chip').forEach((c) => c.classList.remove('active'));
+      chip.classList.add('active');
+      saveState();
+      render();
+    });
+  });
 }
 
-function esc(s) { return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+// CSV export — current filtered + sorted view.
+function exportCsv() {
+  const visible = sortItems(ITEMS.filter(matchesFilter));
+  const cols = ['id', 'title', 'epic', 'kind', 'status', 'priority', 'category', 'pillars', 'createdAt', 'updatedAt', 'shippedAt', 'shippedBy', 'summary'];
+  const esc = (v) => {
+    if (v == null) return '';
+    let s = Array.isArray(v) ? v.join(';') : String(v);
+    if (s.includes('"') || s.includes(',') || s.includes('\n')) s = '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  };
+  // `epic` is derived (see epicOf), not a stored field — resolve it per row.
+  const cellOf = (i, c) => (c === 'epic' ? epicOf(i) : i[c]);
+  const csv = [cols.join(',')].concat(visible.map((i) => cols.map((c) => esc(cellOf(i, c))).join(','))).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `speakup-backlog-${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+}
 
-// Populate category filter
-const cats = [...new Set(ITEMS.map(i => i.c))].sort();
-const fcSel = document.getElementById('fCategory');
-cats.forEach(c => { const o = document.createElement('option'); o.textContent = c; fcSel.appendChild(o); });
+function setActiveChip(filter, value) {
+  document.querySelectorAll(`.chip[data-filter="${filter}"]`).forEach((c) => c.classList.remove('active'));
+  const target = document.querySelector(`.chip[data-filter="${filter}"][data-value="${value}"]`);
+  if (target) target.classList.add('active');
+}
 
-['search', 'fPriority', 'fCategory'].forEach(id =>
-  document.getElementById(id).addEventListener('input', render));
-document.querySelectorAll('#fStatus input').forEach(cb =>
-  cb.addEventListener('change', render));
-document.getElementById('reset').addEventListener('click', () => {
-  ITEMS.forEach(it => localStorage.removeItem(KEY(it.id)));
+// URL hash deep-link: #p41 expands + flashes the item
+function applyUrlHash() {
+  const hash = (location.hash || '').slice(1);
+  if (!hash) return;
+  const it = ITEMS.find((x) => x.id === hash);
+  if (!it) return;
+  it._expanded = true;
+  saveState();
   render();
-});
+  // Defer scroll until DOM updated
+  setTimeout(() => {
+    const el = document.getElementById('item-' + hash);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('permalink-highlight');
+      setTimeout(() => el.classList.remove('permalink-highlight'), 1500);
+    }
+  }, 50);
+}
 
+// Reset every FILTER (not the status changes saved per item — see clearStatusEdits)
+function resetFilters() {
+  // Keep the pane open/closed as the user left it.
+  const wasOpen = STATE.filtersOpen;
+  Object.assign(STATE, DEFAULT_STATE);
+  setFiltersOpen(wasOpen);
+  ITEMS.forEach((i) => { i._expanded = false; });
+  ['bucket', 'status', 'priority', 'pillar', 'kind', 'category', 'epic'].forEach((f) => setActiveChip(f, 'all'));
+  document.getElementById('search').value = '';
+  const idEl = document.getElementById('id-jump');
+  idEl.value = '';
+  idEl.parentElement.classList.remove('has-text');
+  document.getElementById('sort-select').value = DEFAULT_STATE.sort;
+  document.getElementById('group-select').value = DEFAULT_STATE.group;
+  saveState();
+  render();
+}
+
+// Keyboard navigation: track focused item by id
+let focusedItemId = null;
+
+function focusItem(id) {
+  document.querySelectorAll('.item.permalink-highlight').forEach((e) => e.classList.remove('permalink-highlight'));
+  focusedItemId = id;
+  const el = document.getElementById('item-' + id);
+  if (el) {
+    el.classList.add('permalink-highlight');
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+function nextItem(delta) {
+  const visible = sortItems(ITEMS.filter(matchesFilter));
+  if (visible.length === 0) return;
+  const idx = focusedItemId ? visible.findIndex((i) => i.id === focusedItemId) : -1;
+  const next = (idx + delta + visible.length) % visible.length;
+  focusItem(visible[next].id);
+}
+
+function attachChipHandlers() {
+  document.querySelectorAll('.chip:not([data-filter="category"]):not([data-filter="epic"])').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      const filter = chip.dataset.filter;
+      const value = chip.dataset.value;
+      STATE[filter] = value;
+      setActiveChip(filter, value);
+      saveState();
+      render();
+    });
+  });
+}
+
+function attachToolbarHandlers() {
+  document.getElementById('search').addEventListener('input', (e) => {
+    STATE.search = e.target.value;
+    saveState();
+    render();
+  });
+  document.getElementById('search-clear').addEventListener('click', () => {
+    STATE.search = '';
+    document.getElementById('search').value = '';
+    saveState();
+    render();
+  });
+  // "Jump to ID" input — prefix-filter + auto-expand-and-scroll on exact match.
+  const idInput = document.getElementById('id-jump');
+  idInput.addEventListener('input', (e) => {
+    STATE.id = e.target.value.trim();
+    const wrap = idInput.parentElement;
+    if (STATE.id) wrap.classList.add('has-text'); else wrap.classList.remove('has-text');
+    const exact = STATE.id ? ITEMS.find((i) => i.id.toLowerCase() === STATE.id.toLowerCase()) : null;
+    if (exact) exact._expanded = true;
+    saveState();
+    render();
+    if (exact) focusItem(exact.id);
+  });
+  document.getElementById('id-jump-clear').addEventListener('click', () => {
+    STATE.id = '';
+    idInput.value = '';
+    idInput.parentElement.classList.remove('has-text');
+    saveState();
+    render();
+  });
+  document.getElementById('sort-select').addEventListener('change', (e) => {
+    STATE.sort = e.target.value;
+    saveState();
+    render();
+  });
+  document.getElementById('group-select').addEventListener('change', (e) => {
+    STATE.group = e.target.value;
+    saveState();
+    render();
+  });
+  document.getElementById('expand-all').addEventListener('click', () => {
+    sortItems(ITEMS.filter(matchesFilter)).forEach((i) => { i._expanded = true; });
+    saveState();
+    render();
+  });
+  document.getElementById('collapse-all').addEventListener('click', () => {
+    ITEMS.forEach((i) => { i._expanded = false; });
+    saveState();
+    render();
+  });
+  document.getElementById('export-csv').addEventListener('click', exportCsv);
+  document.getElementById('clear-status-edits').addEventListener('click', clearStatusEdits);
+  document.getElementById('filters-toggle').addEventListener('click', () => {
+    setFiltersOpen(!STATE.filtersOpen);
+    saveState();
+  });
+  document.getElementById('reset-filters').addEventListener('click', resetFilters);
+  document.getElementById('help-btn').addEventListener('click', () => {
+    document.getElementById('help-modal').classList.add('open');
+  });
+  document.getElementById('help-modal').addEventListener('click', (e) => {
+    if (e.target.id === 'help-modal') e.target.classList.remove('open');
+  });
+}
+
+function attachKeyboardShortcuts() {
+  document.addEventListener('keydown', (e) => {
+    const tag = (e.target && e.target.tagName) || '';
+    const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    // Esc: close modal / clear search
+    if (e.key === 'Escape') {
+      const modal = document.getElementById('help-modal');
+      if (modal.classList.contains('open')) { modal.classList.remove('open'); return; }
+      if (inInput) { e.target.blur(); }
+      if (STATE.search || STATE.id) {
+        STATE.search = '';
+        STATE.id = '';
+        document.getElementById('search').value = '';
+        const idEl = document.getElementById('id-jump');
+        idEl.value = '';
+        idEl.parentElement.classList.remove('has-text');
+        saveState();
+        render();
+      }
+      return;
+    }
+    if (inInput) return;
+    if (e.key === '/') { e.preventDefault(); document.getElementById('search').focus(); return; }
+    if (e.key === '?' || (e.shiftKey && e.key === '/')) { document.getElementById('help-modal').classList.add('open'); return; }
+    if (e.key === 'j') { nextItem(1); return; }
+    if (e.key === 'k') { nextItem(-1); return; }
+    if (e.key === 'o' || e.key === 'Enter') {
+      if (focusedItemId) toggleItem(focusedItemId);
+      return;
+    }
+    if (e.key === 'e') { document.getElementById('expand-all').click(); return; }
+    if (e.key === 'c') { document.getElementById('collapse-all').click(); return; }
+    if (e.key === 'r') { resetFilters(); return; }
+    if (e.key === 'x') { exportCsv(); return; }
+  });
+}
+
+// On hash change, re-apply (in case user navigates with browser)
+window.addEventListener('hashchange', applyUrlHash);
+
+// Init sequence
+applyStatusOverrides();
+loadState();
+buildEpicChips();
+buildCategoryChips();
+// Populate the "Jump to ID" datalist with every backlog item id, so the input
+// gets native browser autocomplete on focus / type.
+{
+  const dl = document.getElementById('bl-id-list');
+  dl.innerHTML = ITEMS.map((i) => '<option value="' + escapeHtml(i.id) + '">').join('');
+}
+// Sync UI controls to loaded state
+['bucket', 'status', 'priority', 'pillar', 'kind'].forEach((f) => setActiveChip(f, STATE[f]));
+setFiltersOpen(STATE.filtersOpen);
+document.getElementById('search').value = STATE.search || '';
+{
+  const idEl = document.getElementById('id-jump');
+  idEl.value = STATE.id || '';
+  if (STATE.id) idEl.parentElement.classList.add('has-text');
+}
+document.getElementById('sort-select').value = STATE.sort || DEFAULT_STATE.sort;
+document.getElementById('group-select').value = STATE.group || DEFAULT_STATE.group;
+attachChipHandlers();
+attachToolbarHandlers();
+attachKeyboardShortcuts();
 render();
+applyUrlHash();
 </script>
 </body>
 </html>
