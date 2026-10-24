@@ -1,6 +1,7 @@
 {
     "whisper_model": "gpt-4o-transcribe",
-    "gpt_model": "gpt-4o-mini",
+    "gpt_model": "gpt-6-luna",
+    "backup_model": "claude-haiku-5-5",
     "temperature": 0.2,
     "hotkey": "ctrl+cmd",
     "sample_rate": 16000,

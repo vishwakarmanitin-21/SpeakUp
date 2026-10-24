@@ -13,14 +13,18 @@ def _reset_config():
     Config.reset()
 
 
-def test_config_loads_defaults():
+def test_config_loads_defaults(tmp_path, monkeypatch):
     """Config reads values from config_defaults.json."""
-    _reset_config()
+    import src.config as cfg_module
     from src.config import Config
 
+    # An empty user folder: the developer's own config.json must not leak in.
+    monkeypatch.setattr(cfg_module, "_PROJECT_ROOT", tmp_path)
+    _reset_config()
     config = Config()
     assert config.whisper_model == "gpt-4o-transcribe"  # modernised default
-    assert config.gpt_model == "gpt-4o-mini"
+    assert config.gpt_model == "gpt-6-luna"  # cheapest, no retirement date (2026-10-24)
+    assert config.backup_model == "claude-haiku-5-5"
     assert config.sample_rate == 16000
     assert config.hotkey == "ctrl+cmd"
 
@@ -92,3 +96,13 @@ def test_openai_api_key_returns_value():
     with patch("src.config.os.getenv", return_value="sk-test-abc"):
         config = Config()
         assert config.openai_api_key == "sk-test-abc"
+
+
+def test_known_retired_model_is_swapped_for_the_default(tmp_path, monkeypatch):
+    import src.config as cfg_module
+    from src.config import Config
+
+    (tmp_path / "config.json").write_text(json.dumps({"gpt_model": "gpt-4.1-nano"}))
+    monkeypatch.setattr(cfg_module, "_PROJECT_ROOT", tmp_path)
+    _reset_config()
+    assert Config().gpt_model == "gpt-6-luna"

@@ -9,6 +9,7 @@ dependencies = [
     "scipy>=1.12",
     "pynput>=1.7.6",
     "openai>=1.30",
+    "anthropic>=2.0",
     "python-dotenv>=1.0",
     "PyQt5>=5.15",
     "qasync>=0.27",

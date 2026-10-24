@@ -14,7 +14,7 @@ from src.config import Config
 from src.context.context_builder import ContextBuilder
 from src.context.session_memory import SessionMemory
 from src.output.inserter import OutputInserter, OutputMode
-from src.rewrite.engine import RewriteEngine
+from src.rewrite.engine import RewriteEngine, is_claude
 from src.rewrite.modes import RewriteMode
 from src.services.error_handler import RewriteError, is_model_unavailable
 from src.transcription.factory import get_transcription_client
@@ -112,23 +112,42 @@ class Pipeline:
             except Exception:
                 pass
 
+    def _usable_backup(self, config: Config) -> str | None:
+        """The backup clean-up model, if one is set, differs, and has a key."""
+        backup = config.backup_model
+        if not isinstance(backup, str) or not backup or backup == config.gpt_model:
+            return None
+        try:
+            key = config.anthropic_api_key if is_claude(backup) else config.openai_api_key
+        except Exception:
+            key = ""
+        return backup if isinstance(key, str) and key else None
+
     def _recover_from_rewrite_error(
-        self, exc: RewriteError, config: Config, partial: bool = False
+        self,
+        exc: RewriteError,
+        config: Config,
+        partial: bool = False,
+        backup_used: str | None = None,
     ) -> None:
         """Explain a clean-up failure, and switch away from a retired model.
 
         OpenAI retires models without notice (gpt-4.1-nano, 2026-10-24); left
         alone, every later dictation would fail the same way.
         """
-        logger.warning(
-            "Rewrite failed%s: %s",
-            " part-way; kept the text already typed" if partial
-            else ", delivered the unformatted transcript", exc,
-        )
-        outcome = (
-            "Clean-up stopped part-way through." if partial
-            else "Pasted your words without clean-up."
-        )
+        if backup_used:
+            logger.warning("Primary clean-up failed; %s did it instead: %s", backup_used, exc)
+            outcome = f"Cleaned up by the backup model '{backup_used}' this time."
+        else:
+            logger.warning(
+                "Rewrite failed%s: %s",
+                " part-way; kept the text already typed" if partial
+                else ", delivered the unformatted transcript", exc,
+            )
+            outcome = (
+                "Clean-up stopped part-way through." if partial
+                else "Pasted your words without clean-up."
+            )
         model = config.gpt_model
         default = config.default("gpt_model")
         # Only switch TO a different model — if the default itself is retired,
@@ -137,7 +156,7 @@ class Pipeline:
             config.save_user_overrides({"gpt_model": default})
             logger.warning("Clean-up model %r is unavailable; switched to %r", model, default)
             self._notify(
-                f"OpenAI retired the clean-up model '{model}'. Switched to "
+                f"The clean-up model '{model}' has been retired. Switched to "
                 f"'{default}' for your next dictation. {outcome}"
             )
         else:
@@ -436,52 +455,71 @@ class Pipeline:
             config.stream_output and effective_output == OutputMode.AUTO_PASTE
         )
 
+        # Primary model first, then the backup (if one is usable) — but only
+        # while nothing has been typed yet, or the retry would duplicate text.
+        backup = self._usable_backup(config)
+        candidates: list[str | None] = [None] + ([backup] if backup else [])
+        primary_error: RewriteError | None = None
         rewrite_error: RewriteError | None = None
+        used_backup = False
         partial = False
         if stream_output:
             chunks: list[str] = []
             first_token = False
             self._inserter.begin_stream()
             try:
-                try:
-                    async for delta in self._rewriter.rewrite_stream(
-                        raw_text, mode, context, app_hint=app_hint
-                    ):
-                        if self._is_cancelled(gen):
+                for model in candidates:
+                    try:
+                        async for delta in self._rewriter.rewrite_stream(
+                            raw_text, mode, context, app_hint=app_hint, model=model
+                        ):
+                            if self._is_cancelled(gen):
+                                break
+                            if not first_token:
+                                first_token = True
+                                # Time-to-first-word from key-release — this is the
+                                # latency the user actually perceives (text appears).
+                                logger.info(
+                                    "First word after %d ms",
+                                    int((time.monotonic() - start) * 1000),
+                                )
+                            chunks.append(delta)
+                            self._inserter.feed_stream(delta)
+                        rewrite_error = None
+                        used_backup = model is not None
+                        break
+                    except RewriteError as e:
+                        rewrite_error = e
+                        primary_error = primary_error or e
+                        if chunks or self._is_cancelled(gen):
                             break
-                        if not first_token:
-                            first_token = True
-                            # Time-to-first-word from key-release — this is the
-                            # latency the user actually perceives (text appears).
-                            logger.info(
-                                "First word after %d ms",
-                                int((time.monotonic() - start) * 1000),
-                            )
-                        chunks.append(delta)
-                        self._inserter.feed_stream(delta)
-                except RewriteError as e:
-                    rewrite_error = e
-                    # Only when nothing was typed yet — after a mid-stream
-                    # failure the raw text would duplicate what is there.
-                    partial = bool(chunks)
-                    if not chunks and raw_text.strip() and not self._is_cancelled(gen):
-                        chunks.append(raw_text)
-                        self._inserter.feed_stream(raw_text)
+                partial = rewrite_error is not None and bool(chunks)
+                if rewrite_error is not None and not chunks and raw_text.strip() \
+                        and not self._is_cancelled(gen):
+                    chunks.append(raw_text)
+                    self._inserter.feed_stream(raw_text)
             finally:
                 self._inserter.end_stream()
             rewritten = "".join(chunks)
         else:
-            try:
-                rewritten = await self._rewriter.rewrite(
-                    raw_text, mode, context, app_hint=app_hint
-                )
-            except RewriteError as e:
-                rewrite_error = e
-                rewritten = raw_text
-        if rewrite_error is not None:
-            if not raw_text.strip():
-                raise rewrite_error
-            self._recover_from_rewrite_error(rewrite_error, config, partial)
+            rewritten = raw_text
+            for model in candidates:
+                try:
+                    rewritten = await self._rewriter.rewrite(
+                        raw_text, mode, context, app_hint=app_hint, model=model
+                    )
+                    rewrite_error = None
+                    used_backup = model is not None
+                    break
+                except RewriteError as e:
+                    rewrite_error = e
+                    primary_error = primary_error or e
+        if rewrite_error is not None and not raw_text.strip():
+            raise rewrite_error
+        if primary_error is not None:
+            self._recover_from_rewrite_error(
+                primary_error, config, partial, backup if used_backup else None
+            )
         logger.info("Rewrite: %d words (%d chars)", len(rewritten.split()), len(rewritten))
         if self._is_cancelled(gen):
             return rewritten

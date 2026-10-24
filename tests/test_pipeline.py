@@ -172,6 +172,8 @@ def _fake_config(model="gpt-4.1-nano", default="gpt-4o-mini", stream=True):
     cfg.log_transcripts = False
     cfg.track_usage = False
     cfg.transcription_provider = "cloud"
+    cfg.backup_model = ""
+    cfg.anthropic_api_key = ""
     return cfg
 
 
@@ -273,3 +275,63 @@ async def test_silent_recording_pastes_nothing():
     pipeline._rewriter.rewrite_stream.assert_not_called()
     pipeline._inserter.begin_stream.assert_not_called()
 
+
+# --- Backup clean-up model -----------------------------------------------------
+
+def _stream_by_model(fail_models):
+    """rewrite_stream fake: fails for models in fail_models (None = primary)."""
+    from src.services.error_handler import RewriteError
+    calls = []
+
+    async def _gen(raw, *_a, model=None, **_kw):
+        calls.append(model)
+        if model in fail_models:
+            raise RewriteError(f"GPT rewrite failed: {_RETIRED}", "Rewrite failed.")
+        yield f"[{model}] {raw}"
+    return _gen, calls
+
+
+@pytest.mark.asyncio
+async def test_backup_model_cleans_up_when_primary_fails():
+    pipeline = _make_pipeline()
+    notices: list[str] = []
+    pipeline.set_notice_callback(notices.append)
+    gen, calls = _stream_by_model({None})
+    pipeline._rewriter.rewrite_stream = gen
+    cfg = _fake_config(model="gpt-4.1-nano", default="gpt-6-luna")
+    cfg.backup_model = "claude-haiku-5-5"
+    cfg.anthropic_api_key = "sk-test"
+    raw, rewritten = await _process(pipeline, cfg)
+
+    assert calls == [None, "claude-haiku-5-5"]
+    assert rewritten == "[claude-haiku-5-5] hello world"
+    pipeline._inserter.feed_stream.assert_called_once_with(rewritten)
+    # The retired primary is still replaced, and the notice says who cleaned up.
+    cfg.save_user_overrides.assert_called_once_with({"gpt_model": "gpt-6-luna"})
+    assert any("backup" in n for n in notices)
+
+
+@pytest.mark.asyncio
+async def test_backup_without_its_key_is_skipped():
+    pipeline = _make_pipeline()
+    gen, calls = _stream_by_model({None})
+    pipeline._rewriter.rewrite_stream = gen
+    cfg = _fake_config()
+    cfg.backup_model = "claude-haiku-5-5"   # but no ANTHROPIC_API_KEY
+    raw, rewritten = await _process(pipeline, cfg)
+
+    assert calls == [None]
+    assert rewritten == "hello world"
+
+
+@pytest.mark.asyncio
+async def test_both_models_failing_still_pastes_the_transcript():
+    pipeline = _make_pipeline()
+    gen, calls = _stream_by_model({None, "claude-haiku-5-5"})
+    pipeline._rewriter.rewrite_stream = gen
+    cfg = _fake_config()
+    cfg.backup_model, cfg.anthropic_api_key = "claude-haiku-5-5", "sk-test"
+    raw, rewritten = await _process(pipeline, cfg)
+
+    assert calls == [None, "claude-haiku-5-5"]
+    assert rewritten == "hello world"

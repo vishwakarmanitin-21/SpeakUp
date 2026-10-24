@@ -76,19 +76,50 @@ class SettingsDialog(QDialog):
         api_layout.addRow("OpenAI API Key:", key_row)
 
         self._model_combo = QComboBox()
-        self._model_combo.setEditable(True)  # type any current OpenAI model id
+        self._model_combo.setEditable(True)  # type any current model id
         self._model_combo.addItems(
-            # gpt-4.1-nano was retired by OpenAI on 2026-10-24 — do not re-add.
-            ["gpt-4o-mini", "gpt-4.1", "gpt-4o", "gpt-4.1-mini"]
+            # Only models with no announced shutdown, or a distant one. Retired
+            # or retiring (per OpenAI, checked 2026-10-24): gpt-4.1-nano (gone),
+            # gpt-4o-mini / gpt-4.1 / gpt-4.1-mini (2027-01-14), gpt-5-nano
+            # (2026-12-11), gpt-5.4-nano (2027-04-01).
+            ["gpt-6-luna", "gpt-4.1-mini", "claude-haiku-5-5", "gpt-5.4-mini"]
         )
         self._model_combo.setToolTip(
             "The model that cleans up & formats your speech.\n"
-            "gpt-4o-mini: fast + cheap, great default (recommended).\n"
-            "gpt-4.1 / gpt-4o: higher quality on complex formatting, similar lag.\n"
-            "If OpenAI retires the model you pick, SpeakUp switches back to the default.\n"
-            "You can type any current OpenAI model id and hit Test."
+            "Measured 2026-10-24 on SpeakUp's own prompt (first word appears):\n"
+            "gpt-6-luna: ~0.83s, cheapest, no retirement date (recommended).\n"
+            "gpt-4.1-mini: ~0.61s, fastest, 4x the price; OpenAI shuts it down 2027-01-14.\n"
+            "claude-haiku-5-5: same price as gpt-6-luna; needs an Anthropic API key.\n"
+            "gpt-5.4-mini: about 6x the price of gpt-6-luna.\n"
+            "If the model you pick is retired, SpeakUp switches back to the default.\n"
+            "You can type any current OpenAI or Claude model id."
         )
-        api_layout.addRow("GPT Model:", self._model_combo)
+        api_layout.addRow("Clean-up model:", self._model_combo)
+
+        self._anthropic_key_input = QLineEdit()
+        self._anthropic_key_input.setEchoMode(QLineEdit.Password)
+        self._anthropic_key_input.setPlaceholderText(
+            "optional — for Claude clean-up or as the backup"
+        )
+        self._anthropic_key_input.setToolTip(
+            "Optional. An Anthropic API key from console.anthropic.com (a Claude.ai "
+            "plan is not the same thing). Lets Claude do the clean-up, or step in "
+            "automatically when the main clean-up model fails."
+        )
+        api_layout.addRow("Anthropic API Key:", self._anthropic_key_input)
+
+        self._backup_model_combo = QComboBox()
+        self._backup_model_combo.setEditable(True)
+        self._backup_model_combo.addItem("None", "")
+        self._backup_model_combo.addItem("claude-haiku-5-5", "claude-haiku-5-5")
+        self._backup_model_combo.addItem("gpt-6-luna", "gpt-6-luna")
+        self._backup_model_combo.setToolTip(
+            "If the clean-up model fails (outage, retired model), this one is\n"
+            "tried before falling back to pasting your words unformatted.\n"
+            "Pick a model from a DIFFERENT provider so one outage can't take\n"
+            "out both. Needs that provider's API key."
+        )
+        api_layout.addRow("Backup model:", self._backup_model_combo)
 
         self._whisper_model_combo = QComboBox()
         self._whisper_model_combo.addItems(
@@ -514,6 +545,14 @@ class SettingsDialog(QDialog):
         # API keys from environment
         self._api_key_input.setText(os.getenv("OPENAI_API_KEY", ""))
         self._deepgram_key_input.setText(os.getenv("DEEPGRAM_API_KEY", ""))
+        self._anthropic_key_input.setText(os.getenv("ANTHROPIC_API_KEY", ""))
+
+        backup = self._config.backup_model
+        idx = self._backup_model_combo.findData(backup)
+        if idx >= 0:
+            self._backup_model_combo.setCurrentIndex(idx)
+        else:
+            self._backup_model_combo.setCurrentText(backup)
 
         # Model (editable — accept a value that isn't in the preset list)
         idx = self._model_combo.findText(self._config.gpt_model)
@@ -676,7 +715,8 @@ class SettingsDialog(QDialog):
                 vocab.append(term)
 
         overrides = {
-            "gpt_model": self._model_combo.currentText(),
+            "gpt_model": self._model_combo.currentText().strip(),
+            "backup_model": self._backup_selection(),
             "whisper_model": self._whisper_model_combo.currentText(),
             "temperature": self._temperature_spin.value(),
             "hotkey": new_hotkey,
@@ -727,9 +767,21 @@ class SettingsDialog(QDialog):
             if new_dg != os.getenv("DEEPGRAM_API_KEY", ""):
                 self._set_env_var("DEEPGRAM_API_KEY", new_dg)
 
+            new_anthropic = self._anthropic_key_input.text().strip()
+            if new_anthropic != os.getenv("ANTHROPIC_API_KEY", ""):
+                self._set_env_var("ANTHROPIC_API_KEY", new_anthropic)
+
             self.accept()
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to save settings: {e}")
+
+    def _backup_selection(self) -> str:
+        """The chosen backup model id; typed text wins over the preset's data."""
+        text = self._backup_model_combo.currentText().strip()
+        idx = self._backup_model_combo.findText(text)
+        if idx >= 0:
+            return self._backup_model_combo.itemData(idx) or ""
+        return text
 
     def _set_env_var(self, name: str, value: str) -> None:
         """Upsert a KEY=value line in the .env file and the live environment."""

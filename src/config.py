@@ -41,6 +41,9 @@ def _find_bundle_root() -> Path:
 
 
 _PROJECT_ROOT = _find_project_root()
+
+# Chat models the provider has shut down (calls 404 even if still listed).
+_RETIRED_CHAT_MODELS = {"gpt-4.1-nano"}  # OpenAI, 2026-10-23
 _BUNDLE_ROOT = _find_bundle_root()
 
 
@@ -141,6 +144,24 @@ class Config:
         """
         return os.getenv("DEEPGRAM_API_KEY", "").strip()
 
+    @property
+    def anthropic_api_key(self) -> str:
+        """Optional Anthropic key (ANTHROPIC_API_KEY) for Claude clean-up.
+
+        Returns '' if not set. With it, Claude can be the clean-up model or the
+        automatic backup when the primary one fails.
+        """
+        return os.getenv("ANTHROPIC_API_KEY", "").strip()
+
+    @property
+    def backup_model(self) -> str:
+        """Clean-up model to retry with when the primary fails ('' = none).
+
+        Only used when its provider's key is set, and only before any text
+        was typed — so an outage or a retired model never costs formatting.
+        """
+        return str(self._get("backup_model", "") or "").strip()
+
     # --- Model Settings ---
 
     @property
@@ -149,7 +170,13 @@ class Config:
 
     @property
     def gpt_model(self) -> str:
-        return self._get("gpt_model", "gpt-4o-mini")
+        model = self._get("gpt_model", "gpt-6-luna")
+        # Known-dead ids are swapped before the first call, so nobody pays even
+        # one unformatted dictation for a retirement we already know about.
+        # Unknown retirements are caught at runtime by the pipeline instead.
+        if model in _RETIRED_CHAT_MODELS:
+            return self._defaults.get("gpt_model", "gpt-6-luna")
+        return model
 
     @property
     def temperature(self) -> float:

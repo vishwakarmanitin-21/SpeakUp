@@ -686,3 +686,28 @@ async def test_realtime_fallback_emits_notice():
         await pipeline.process(RewriteMode.CLEAN_GRAMMAR, output_mode="clipboard")
 
     assert any("standard mode" in n for n in notices)
+
+
+# --- Request settings per model family (2026-10-24) ---------------------------
+
+@pytest.mark.parametrize("model,expected", [
+    ("gpt-4o-mini", {"temperature": 0.2, "max_tokens": 2000}),
+    ("gpt-4.1", {"temperature": 0.2, "max_tokens": 2000}),
+    ("gpt-5-nano", {"reasoning_effort": "minimal", "max_completion_tokens": 2000}),
+    ("gpt-5.4-nano", {"reasoning_effort": "none", "max_completion_tokens": 2000}),
+    ("gpt-6-luna", {"reasoning_effort": "none", "max_completion_tokens": 2000}),
+    ("gpt-6.1-sol", {"reasoning_effort": "none", "max_completion_tokens": 2000}),
+    ("gpt-5-chat-latest", {"temperature": 0.2, "max_tokens": 2000}),
+    ("o4-mini", {"reasoning_effort": "low", "max_completion_tokens": 2000}),
+])
+def test_completion_kwargs_match_what_each_model_accepts(model, expected):
+    from src.rewrite.engine import completion_kwargs
+    assert completion_kwargs(model, 0.2) == expected
+
+
+def test_claude_requests_switch_thinking_off_and_send_no_temperature():
+    from src.rewrite.engine import claude_request_kwargs, is_claude
+    kw = claude_request_kwargs()
+    assert kw["thinking"] == {"type": "disabled"}
+    assert "temperature" not in kw
+    assert is_claude("claude-haiku-5-5") and not is_claude("gpt-6-luna")

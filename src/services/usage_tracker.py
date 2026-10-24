@@ -25,7 +25,11 @@ def _stats_file():
 
 # --- Approximate pricing (USD). Update if provider prices change. ---
 # Chat models: (input $/1M tokens, output $/1M tokens)
-_CHAT_PRICES = {
+_CHAT_PRICES = {      # checked 2026-10-24
+    "gpt-6-luna": (0.10, 0.50),
+    "claude-haiku-5-5": (0.10, 0.50),
+    "gpt-5.4-mini": (0.75, 4.50),
+    "gpt-4.1-mini": (0.40, 1.60),
     "gpt-4o-mini": (0.15, 0.60),
     "gpt-4o": (2.50, 10.00),
 }
