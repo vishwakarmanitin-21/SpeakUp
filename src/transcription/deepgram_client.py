@@ -138,13 +138,24 @@ def start_endpoint_probe() -> None:
     threading.Thread(target=_probe_hosts, daemon=True, name="dg-probe").start()
 
 
-async def _ws_connect(url: str, headers: dict):
+# A healthy connect takes ~0.9-1.4 s (2026-10-24). The library default of 10 s
+# per attempt, x3 attempts, is what let a hung handshake hold a dictation for
+# ~23 s (log: 31 handshake timeouts, 9 session failures).
+_OPEN_TIMEOUT_S = 3.0
+# After release, how long to wait for a socket still connecting before giving
+# the already-captured audio to batch transcription instead.
+_CONNECT_GRACE_S = 1.5
+
+
+async def _ws_connect(url: str, headers: dict, open_timeout: float = _OPEN_TIMEOUT_S):
     import websockets
 
     try:
-        return await websockets.connect(url, additional_headers=headers, max_size=None)
+        return await websockets.connect(url, additional_headers=headers, max_size=None,
+                                        open_timeout=open_timeout)
     except TypeError:
-        return await websockets.connect(url, extra_headers=headers, max_size=None)
+        return await websockets.connect(url, extra_headers=headers, max_size=None,
+                                        open_timeout=open_timeout)
 
 
 class DeepgramTranscriber:
@@ -158,6 +169,8 @@ class DeepgramTranscriber:
         self._stop = False
         self._thread: threading.Thread | None = None
         self._result: Future = Future()
+        self._connected = threading.Event()
+        self._abandoned = False      # release gave up waiting for the connection
         self.used_fallback = False  # True if we dropped to batch transcription
         self.live_failed = False    # True ONLY when the live session errored/couldn't connect
 
@@ -166,6 +179,8 @@ class DeepgramTranscriber:
         self._pcm_buffer = []
         self._result = Future()
         self._stop = False
+        self._connected.clear()
+        self._abandoned = False
         self.used_fallback = False
         self.live_failed = False
 
@@ -201,15 +216,20 @@ class DeepgramTranscriber:
             key = Config().deepgram_api_key
             headers = {"Authorization": f"Token {key}"}
             for attempt in range(3):
+                if self._abandoned:
+                    return  # the dictation already went to batch transcription
                 try:
                     ws = await _ws_connect(_build_url(), headers)
                     break
                 except Exception as e:
-                    if attempt < 2:
+                    if attempt < 2 and not self._abandoned:
                         logger.warning("Deepgram connect failed (%s); retrying", e)
                         await asyncio.sleep(0.5)
                         continue
                     raise
+            if self._abandoned:
+                return
+            self._connected.set()
             logger.info("Deepgram live transcription started")
 
             loop = asyncio.get_running_loop()
@@ -300,7 +320,7 @@ class DeepgramTranscriber:
             except Exception:
                 pass
 
-    async def stop_and_transcribe(self, timeout: float = 25.0) -> str:
+    async def stop_and_transcribe(self, timeout: float = 10.0) -> str:
         self._active = False
         self._stop = True
         if self._mic is not None:
@@ -310,6 +330,20 @@ class DeepgramTranscriber:
             except Exception:
                 pass
             self._mic = None
+
+        # Still connecting? Every word is already in _pcm_buffer, so a hung
+        # handshake must not hold the dictation: past a short grace, batch it.
+        if not self._connected.is_set():
+            loop = asyncio.get_running_loop()
+            ready = await loop.run_in_executor(None, self._connected.wait, _CONNECT_GRACE_S)
+            if not ready and not self._result.done():
+                self._abandoned = True
+                self.live_failed = True
+                logger.warning(
+                    "Deepgram still not connected %.1fs after release; batch-transcribing",
+                    _CONNECT_GRACE_S,
+                )
+                return await self._fallback_batch()
 
         transcript = None
         try:

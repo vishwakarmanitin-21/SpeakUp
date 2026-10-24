@@ -858,3 +858,41 @@ def test_deepgram_keeps_the_default_when_neither_endpoint_answers(monkeypatch):
     monkeypatch.setattr(dg, "_tcp_connect_ms", lambda host: float("inf"))
     dg._probe_hosts()
     assert dg._dg_host == "api.deepgram.com"
+
+
+# --- Deepgram: a hung handshake must not hold the dictation (p50) -------------
+
+@pytest.mark.asyncio
+async def test_unconnected_deepgram_goes_to_batch_after_a_short_grace(monkeypatch):
+    import time as _t
+    from unittest.mock import AsyncMock
+    from src.transcription import deepgram_client as dg
+
+    monkeypatch.setattr(dg, "_CONNECT_GRACE_S", 0.2)
+    t = dg.DeepgramTranscriber()
+    t._pcm_buffer = [bytes(320)]
+    t._fallback_batch = AsyncMock(return_value="batch text")
+    start = _t.monotonic()
+    out = await t.stop_and_transcribe()
+    assert out == "batch text"
+    assert _t.monotonic() - start < 1.0          # not the old 25 s wait
+    assert t.live_failed and t._abandoned        # the stuck session is told to stop
+
+
+@pytest.mark.asyncio
+async def test_connected_deepgram_waits_for_its_live_result(monkeypatch):
+    from unittest.mock import AsyncMock
+    from src.transcription import deepgram_client as dg
+
+    monkeypatch.setattr(dg, "_CONNECT_GRACE_S", 0.2)
+    t = dg.DeepgramTranscriber()
+    t._connected.set()
+    t._result.set_result("live text")
+    t._fallback_batch = AsyncMock(return_value="batch text")
+    assert await t.stop_and_transcribe() == "live text"
+    t._fallback_batch.assert_not_called()
+
+
+def test_deepgram_handshake_has_a_short_timeout():
+    from src.transcription import deepgram_client as dg
+    assert dg._OPEN_TIMEOUT_S <= 3.0
