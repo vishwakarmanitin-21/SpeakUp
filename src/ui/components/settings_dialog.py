@@ -78,13 +78,14 @@ class SettingsDialog(QDialog):
         self._model_combo = QComboBox()
         self._model_combo.setEditable(True)  # type any current OpenAI model id
         self._model_combo.addItems(
-            ["gpt-4.1-nano", "gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1"]
+            # gpt-4.1-nano was retired by OpenAI on 2026-10-24 — do not re-add.
+            ["gpt-4o-mini", "gpt-4.1", "gpt-4o", "gpt-4.1-mini"]
         )
         self._model_combo.setToolTip(
             "The model that cleans up & formats your speech.\n"
-            "gpt-4.1-nano: fastest, lowest lag — but weaker on complex formatting.\n"
             "gpt-4o-mini: fast + cheap, great default (recommended).\n"
-            "gpt-4o / larger: higher quality on complex formatting, but SLOWER.\n"
+            "gpt-4.1 / gpt-4o: higher quality on complex formatting, similar lag.\n"
+            "If OpenAI retires the model you pick, SpeakUp switches back to the default.\n"
             "You can type any current OpenAI model id and hit Test."
         )
         api_layout.addRow("GPT Model:", self._model_combo)
