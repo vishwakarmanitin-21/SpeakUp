@@ -154,6 +154,11 @@ class Config:
         return os.getenv("ANTHROPIC_API_KEY", "").strip()
 
     @property
+    def input_device(self) -> str:
+        """Microphone name to record from ('' = the Windows default)."""
+        return str(self._get("input_device", "") or "").strip()
+
+    @property
     def max_recording_seconds(self) -> int:
         """Longest single recording before it is stopped and processed (0 = no cap).
 

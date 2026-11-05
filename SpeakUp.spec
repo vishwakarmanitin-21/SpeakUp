@@ -52,6 +52,9 @@ a = Analysis(
         'src.ui.components.caption_window',
         'src.ui.components.onboarding_dialog',
         'src.ui.components.about_dialog',
+        'src.ui.components.mic_picker',
+        'src.audio.devices',
+        'src.audio.levels',
         'src.version',
         # scipy.io.wavfile is used for the realtime/deepgram WAV fallback
         'scipy.io.wavfile',

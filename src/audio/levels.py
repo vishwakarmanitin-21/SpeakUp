@@ -42,8 +42,6 @@ def pcm16_levels(chunks: list[bytes]) -> tuple[float, float]:
 
 
 def input_device_name() -> str:
-    try:
-        import sounddevice as sd
-        return str(sd.query_devices(kind="input")["name"])
-    except Exception:
-        return "unknown"
+    """The mic a recording actually used (the chosen one, else the default)."""
+    from src.audio.devices import active_input_name
+    return active_input_name()

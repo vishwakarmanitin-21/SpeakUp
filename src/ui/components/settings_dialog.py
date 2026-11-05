@@ -49,6 +49,10 @@ class SettingsDialog(QDialog):
         self._setup_ui()
         self._load_current_settings()
 
+    def done(self, result: int) -> None:
+        self._mic_picker.stop()   # Save, Cancel or the window's close button
+        super().done(result)
+
     def _setup_ui(self) -> None:
         # Scrollable content so the dialog never overflows small screens;
         # the Save/Cancel row stays fixed at the bottom.
@@ -56,6 +60,16 @@ class SettingsDialog(QDialog):
         content = QWidget()
         content.setObjectName("settingsContent")  # so it picks up the dark theme
         layout = QVBoxLayout(content)
+
+        # --- Microphone (first: it's what to check when dictation fails) ---
+        from src.ui.components.mic_picker import MicPicker
+
+        mic_group = QGroupBox("Microphone")
+        mic_layout = QVBoxLayout()
+        self._mic_picker = MicPicker(self._config.input_device)
+        mic_layout.addWidget(self._mic_picker)
+        mic_group.setLayout(mic_layout)
+        layout.addWidget(mic_group)
 
         # --- API Settings ---
         api_group = QGroupBox("API Settings")
@@ -530,6 +544,7 @@ class SettingsDialog(QDialog):
     def showEvent(self, event) -> None:
         super().showEvent(event)
         self._apply_dark_titlebar()
+        self._mic_picker.start()  # live level bar only while Settings is open
 
     def _apply_dark_titlebar(self) -> None:
         """Darken the native Windows title bar to match the dark theme."""
@@ -729,6 +744,7 @@ class SettingsDialog(QDialog):
         overrides = {
             "gpt_model": self._model_combo.currentText().strip(),
             "backup_model": self._backup_selection(),
+            "input_device": self._mic_picker.selected_name(),
             "whisper_model": self._whisper_model_combo.currentText(),
             "temperature": self._temperature_spin.value(),
             "hotkey": new_hotkey,

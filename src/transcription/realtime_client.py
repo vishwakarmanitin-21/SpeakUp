@@ -187,9 +187,12 @@ class RealtimeTranscriber:
                     (np.clip(indata[:, 0], -1.0, 1.0) * 32767).astype("<i2").tobytes()
                 )
 
+        from src.audio.devices import resolve_input_device
+
         self._active = True
         self._mic = sd.InputStream(
-            samplerate=_SAMPLE_RATE, channels=1, dtype="float32", callback=_cb
+            samplerate=_SAMPLE_RATE, channels=1, dtype="float32",
+            device=resolve_input_device(), callback=_cb,
         )
         self._mic.start()
 

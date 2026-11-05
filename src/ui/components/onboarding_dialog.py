@@ -306,11 +306,30 @@ class OnboardingDialog(QDialog):
         except Exception as e:
             logger.error("Could not save API key: %s", e)
 
+    def _chosen_mic(self) -> str:
+        """The mic tested on the microphone page, by name ('' = Windows default).
+
+        Picking a mic here used to be thrown away — every recording still used
+        the Windows default.
+        """
+        try:
+            import sounddevice as sd
+
+            idx = self._device_combo.currentData()
+            if idx is None or idx == sd.default.device[0]:
+                return ""
+            return str(self._device_combo.currentText())
+        except Exception:
+            return ""
+
     def _finish(self) -> None:
         self._stop_mic()
         self._save_key_if_entered()
         try:
-            self._config.save_user_overrides({"onboarding_complete": True})
+            self._config.save_user_overrides({
+                "onboarding_complete": True,
+                "input_device": self._chosen_mic(),
+            })
             self._config.reload()
         except Exception as e:
             logger.warning("Could not mark onboarding complete: %s", e)

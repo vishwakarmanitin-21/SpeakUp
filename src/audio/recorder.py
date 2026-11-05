@@ -8,7 +8,7 @@ from scipy.io.wavfile import write as wav_write
 
 
 class AudioRecorder:
-    """Records audio from the default microphone using push-to-talk.
+    """Records audio from the chosen (or default) microphone using push-to-talk.
 
     Uses sounddevice.InputStream with a callback so recording length
     is not predetermined. Audio is kept entirely in memory — no files
@@ -53,10 +53,13 @@ class AudioRecorder:
         self._frames = []
         self._is_recording = True
         try:
+            from src.audio.devices import resolve_input_device
+
             self._stream = sd.InputStream(
                 samplerate=self._sample_rate,
                 channels=self._channels,
                 dtype="float32",
+                device=resolve_input_device(),  # the mic chosen in Settings
                 callback=self._audio_callback,
             )
             self._stream.start()
