@@ -179,4 +179,10 @@ if ($NoInstall) {
 }
 
 Step "Done"
-Ok "SpeakUp ${tag}: build + GitHub release + installed copy are all in sync."
+# Say only what this run actually did: with -NoRelease it once claimed the
+# GitHub release was "in sync" when none had been created (2026-11-05).
+$did = @('build')
+if (-not $NoRelease) { $did += 'GitHub release' }
+if (-not $NoInstall) { $did += 'installed copy' }
+Ok ("SpeakUp ${tag}: " + ($did -join ' + ') + ' done.')
+if ($NoRelease) { Warn "No GitHub release was created or updated (-NoRelease)." }
