@@ -937,3 +937,95 @@ def test_warm_socket_sends_only_a_tenth_of_a_second_of_audio():
 
     assert len(_WarmLink._PRIMER) == 16000 * 2 // 10     # 0.1 s, 16 kHz, 16-bit
     assert _WarmLink.TTL_S <= 300 and _WarmLink.KEEPALIVE_S < 10
+
+
+# --- Mic level + phantom hotkey (2026-11-05) -----------------------------------
+
+def test_levels_tell_quiet_from_normal_speech():
+    import numpy as np
+    from src.audio.levels import QUIET_PEAK_DBFS, pcm16_levels
+
+    t = np.arange(16000) / 16000
+    loud = (0.5 * np.sin(2 * np.pi * 220 * t) * 32767).astype("<i2").tobytes()
+    quiet = (0.005 * np.sin(2 * np.pi * 220 * t) * 32767).astype("<i2").tobytes()
+    assert pcm16_levels([loud])[0] > QUIET_PEAK_DBFS
+    assert pcm16_levels([quiet])[0] < QUIET_PEAK_DBFS
+    assert pcm16_levels([]) == (-120.0, -120.0)
+
+
+@pytest.mark.asyncio
+async def test_silent_recording_is_not_sent_to_the_hallucinating_fallback(monkeypatch):
+    """A muted mic: Deepgram hears nothing; batch would invent words — skip it."""
+    from unittest.mock import AsyncMock
+    from src.transcription import deepgram_client as dg
+
+    t = dg.DeepgramTranscriber()
+    t._connected.set()
+    t._result.set_result(None)                    # Deepgram heard nothing
+    t._pcm_buffer = [bytes(32000)]                # 1 s of digital silence
+    t._fallback_batch = AsyncMock(return_value="Thank you for watching.")
+    assert await t.stop_and_transcribe() == ""
+    t._fallback_batch.assert_not_called()
+    assert t.quiet_audio                          # the user gets told why
+
+
+@pytest.mark.asyncio
+async def test_quiet_but_real_speech_still_goes_to_the_fallback():
+    import numpy as np
+    from unittest.mock import AsyncMock
+    from src.transcription import deepgram_client as dg
+
+    s = np.arange(16000) / 16000
+    speechish = (0.01 * np.sin(2 * np.pi * 200 * s) * 32767).astype("<i2").tobytes()  # ~-40 dBFS
+    t = dg.DeepgramTranscriber()
+    t._connected.set()
+    t._result.set_result(None)
+    t._pcm_buffer = [speechish]
+    t._fallback_batch = AsyncMock(return_value="quiet words")
+    assert await t.stop_and_transcribe() == "quiet words"
+
+
+def test_phantom_hotkey_from_a_stale_key_is_ignored(monkeypatch):
+    """Win's release was lost (sleep / lock); pressing Ctrl alone must not start."""
+    from pynput import keyboard
+    from src.hotkeys.listener import HotkeyListener
+
+    started = []
+    l = HotkeyListener("ctrl+cmd", lambda: started.append(1), lambda: None)
+    l._pressed_keys = {keyboard.Key.cmd}                 # stale: Win "held"
+    monkeypatch.setattr(l, "keys_physically_down", lambda exclude=None: False)
+    l._on_press(keyboard.Key.ctrl_l)
+    assert started == []
+    assert l._pressed_keys == {keyboard.Key.ctrl_l}      # stale Win cleared
+
+
+def test_real_hotkey_still_starts(monkeypatch):
+    from pynput import keyboard
+    from src.hotkeys.listener import HotkeyListener
+
+    started = []
+    l = HotkeyListener("ctrl+cmd", lambda: started.append(1), lambda: None)
+    monkeypatch.setattr(l, "keys_physically_down", lambda exclude=None: True)
+    l._on_press(keyboard.Key.cmd)
+    l._on_press(keyboard.Key.ctrl_l)
+    assert started == [1]
+
+
+def test_watchdog_discards_a_recording_whose_keys_were_never_held():
+    me, check = _watchdog_self(held=False)
+    me._keys_seen_held = False
+    for _ in range(3):
+        check(me)
+    me._discard_phantom.assert_called_once()
+    me._finish_missed_release.assert_not_called()
+
+
+def test_watchdog_still_processes_a_real_dictation_after_a_missed_release():
+    me, check = _watchdog_self(held=True)
+    me._keys_seen_held = False
+    check(me)                                           # keys seen held
+    me._hotkey_listener.keys_physically_down.return_value = False
+    for _ in range(3):
+        check(me)
+    me._finish_missed_release.assert_called_once()
+    me._discard_phantom.assert_not_called()

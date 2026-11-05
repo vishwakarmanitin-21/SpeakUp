@@ -266,6 +266,10 @@ _OPEN_TIMEOUT_S = 3.0
 # After release, how long to wait for a socket still connecting before giving
 # the already-captured audio to batch transcription instead.
 _CONNECT_GRACE_S = 1.5
+# Below this peak a recording is treated as silence (muted / dead mic). Real
+# speech, even turned down 200x, peaked at -55 dBFS and Deepgram still
+# transcribed it; the muted USB mic on 2026-11-05 peaked at -84 dBFS.
+SILENT_PEAK_DBFS = -60.0
 
 
 async def _ws_connect(url: str, headers: dict, open_timeout: float = _OPEN_TIMEOUT_S):
@@ -293,6 +297,7 @@ class DeepgramTranscriber:
         self._abandoned = False      # release gave up waiting for the connection
         self.used_fallback = False  # True if we dropped to batch transcription
         self.live_failed = False    # True ONLY when the live session errored/couldn't connect
+        self.quiet_audio = ""       # device name when it heard nothing AND the mic was very quiet
 
     def start(self) -> None:
         """Start capturing immediately (sync) and open the Deepgram stream."""
@@ -480,9 +485,34 @@ class DeepgramTranscriber:
         except Exception as e:
             logger.warning("Deepgram result unavailable (%s); using batch fallback", e)
 
+        peak = self._log_levels(heard_nothing=not transcript)
         if transcript:
             return transcript
+        if self._pcm_buffer and peak is not None and peak < SILENT_PEAK_DBFS:
+            # Nothing heard AND the audio is essentially silent: a muted or
+            # dead mic. The batch model "hears" invented words in silence, and
+            # those got pasted (2026-11-05: USB mic at -84 dBFS peak).
+            logger.warning("Recording is silent (peak %.0f dBFS); skipping transcription", peak)
+            return ""
         return await self._fallback_batch()
+
+    def _log_levels(self, heard_nothing: bool) -> float | None:
+        """Log the mic and how loud this dictation was; flag a too-quiet one.
+
+        Returns the peak level (dBFS), or None if it couldn't be measured.
+        """
+        from src.audio.levels import QUIET_PEAK_DBFS, input_device_name, pcm16_levels
+
+        try:
+            peak, speech = pcm16_levels(self._pcm_buffer)
+            device = input_device_name()
+            logger.info("Mic level: peak %.0f dBFS, speech %.0f dBFS (%s)", peak, speech, device)
+            if heard_nothing and peak < QUIET_PEAK_DBFS:
+                self.quiet_audio = device
+            return peak
+        except Exception as e:  # diagnostics must never cost a dictation
+            logger.debug("Mic level unavailable: %s", e)
+            return None
 
     def _wav_from_buffer(self) -> io.BytesIO | None:
         if not self._pcm_buffer:

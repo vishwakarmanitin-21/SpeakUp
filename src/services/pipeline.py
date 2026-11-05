@@ -29,6 +29,14 @@ class PipelineState:
     ERROR = "error"
 
 
+def _empty_rewrite(model: str | None, config: Config) -> RewriteError:
+    name = model or config.gpt_model
+    return RewriteError(
+        f"Rewrite failed ({name}): the model returned no text",
+        "The clean-up model returned nothing.",
+    )
+
+
 @dataclass
 class _Take:
     """Everything one dictation needs after the key is released."""
@@ -124,6 +132,18 @@ class Pipeline:
                 self._on_notice(message)
             except Exception:
                 pass
+
+    def _came_back_empty(self, rewritten: str, raw_text: str, gen: int) -> bool:
+        """The model answered with nothing although words were spoken.
+
+        It happened on 2026-11-05 18:21: 37 transcribed words, an empty
+        clean-up, nothing pasted and no error shown.
+        """
+        return (
+            not rewritten.strip()
+            and any(ch.isalnum() for ch in raw_text)
+            and not self._is_cancelled(gen)
+        )
 
     def _usable_backup(self, config: Config) -> str | None:
         """The backup clean-up model, if one is set, differs, and has a key."""
@@ -360,6 +380,13 @@ class Pipeline:
                 # silent clip that returns no segments is NOT "unavailable".
                 if getattr(take.realtime, "live_failed", False):
                     self._notify("Live transcription unavailable — used standard mode.")
+                quiet = getattr(take.realtime, "quiet_audio", "")
+                if isinstance(quiet, str) and quiet:
+                    self._notify(
+                        f"Your microphone ({quiet}) is silent or very quiet. Check it "
+                        "isn't muted, raise its input volume in Windows Sound "
+                        "settings, or pick another mic."
+                    )
             else:
                 # If live was requested but couldn't start, this batch path IS the
                 # silent fallback — surface a quiet hint so it's never mysterious.
@@ -498,6 +525,10 @@ class Pipeline:
                                 )
                             chunks.append(delta)
                             self._inserter.feed_stream(delta)
+                        if self._came_back_empty("".join(chunks), raw_text, gen):
+                            # Typed nothing visible: safe to try the next model.
+                            chunks.clear()
+                            raise _empty_rewrite(model, config)
                         rewrite_error = None
                         used_backup = model is not None
                         break
@@ -521,6 +552,9 @@ class Pipeline:
                     rewritten = await self._rewriter.rewrite(
                         raw_text, mode, context, app_hint=app_hint, model=model
                     )
+                    if self._came_back_empty(rewritten, raw_text, gen):
+                        rewritten = raw_text
+                        raise _empty_rewrite(model, config)
                     rewrite_error = None
                     used_backup = model is not None
                     break

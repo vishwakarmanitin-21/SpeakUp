@@ -104,6 +104,18 @@ class HotkeyListener:
             self._pressed_keys.add(normalized)
 
             if self._hotkey_keys.issubset(self._pressed_keys):
+                # A release Windows swallowed (lock screen, sleep, Win+L) leaves
+                # a key "held" here for good; pressing just Ctrl then looked
+                # like Ctrl+Win and started a phantom dictation that pasted
+                # junk (7 in the log, 2026-10-25..11-05). Confirm the OTHER keys
+                # with Windows — the key being pressed now isn't marked down yet.
+                if not self._is_active and self.keys_physically_down(exclude=normalized) is False:
+                    logger.warning(
+                        "Ignored a phantom hotkey: other keys aren't really held; "
+                        "clearing stale key state"
+                    )
+                    self._pressed_keys = {normalized}
+                    return
                 if not self._is_active:
                     self._is_active = True
                     logger.info("Hotkey activated (all keys pressed)")
@@ -150,11 +162,13 @@ class HotkeyListener:
             self._listener.stop()
             self._listener = None
 
-    def keys_physically_down(self) -> bool | None:
+    def keys_physically_down(self, exclude=None) -> bool | None:
         """Ask Windows whether every hotkey key is held RIGHT NOW.
 
         The press/release events can be lost (lock screen, desktop switch,
         sleep, the Windows key's own shortcuts); the async key state can't.
+        `exclude` skips one key — the one whose press is being handled, which
+        Windows hasn't marked down yet inside the keyboard hook.
         Returns None when it can't be determined (not Windows / no code).
         """
         try:
@@ -163,6 +177,8 @@ class HotkeyListener:
         except Exception:
             return None
         for key in self._hotkey_keys:
+            if key == exclude:
+                continue
             codes = _vk_codes(key)
             if not codes:
                 return None

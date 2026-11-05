@@ -335,3 +335,54 @@ async def test_both_models_failing_still_pastes_the_transcript():
 
     assert calls == [None, "claude-haiku-5-5"]
     assert rewritten == "hello world"
+
+
+@pytest.mark.asyncio
+async def test_empty_clean_up_falls_back_to_the_backup_then_the_transcript():
+    """2026-11-05 18:21: 37 words spoken, the model returned nothing, nothing pasted."""
+    pipeline = _make_pipeline()
+    calls = []
+
+    async def empty_then_ok(raw, *_a, model=None, **_kw):
+        calls.append(model)
+        if model is None:
+            return
+            yield  # an async generator that yields nothing
+        yield f"[{model}] {raw}"
+    pipeline._rewriter.rewrite_stream = empty_then_ok
+    cfg = _fake_config()
+    cfg.backup_model, cfg.anthropic_api_key = "claude-haiku-5-5", "sk-test"
+    raw, rewritten = await _process(pipeline, cfg)
+
+    assert calls == [None, "claude-haiku-5-5"]
+    assert rewritten == "[claude-haiku-5-5] hello world"
+    cfg.save_user_overrides.assert_not_called()   # empty != retired model
+
+
+@pytest.mark.asyncio
+async def test_empty_clean_up_without_backup_pastes_the_transcript():
+    pipeline = _make_pipeline()
+
+    async def empty(raw, *_a, **_kw):
+        return
+        yield
+    pipeline._rewriter.rewrite_stream = empty
+    raw, rewritten = await _process(pipeline, _fake_config())
+
+    assert rewritten == "hello world"
+    pipeline._inserter.feed_stream.assert_called_once_with("hello world")
+
+
+@pytest.mark.asyncio
+async def test_quiet_microphone_is_reported():
+    pipeline = _make_pipeline()
+    notices: list[str] = []
+    pipeline.set_notice_callback(notices.append)
+    pipeline._rewriter.rewrite_stream = _stream_by_model(set())[0]
+    session = _live_session("hello world")
+    session.quiet_audio = "Microphone (2- Usb Audio Device)"
+    pipeline._realtime, pipeline._use_realtime = session, True
+    pipeline.stop_recording()
+    await _process(pipeline, _fake_config())
+
+    assert any("very quiet" in n and "Usb Audio Device" in n for n in notices)

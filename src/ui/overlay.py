@@ -95,6 +95,7 @@ class OverlayWidget(QWidget):
         # desktop switch swallowed the release) — every one of them lost.
         self._recording_by_hotkey = False
         self._keys_up_polls = 0
+        self._keys_seen_held = False
         self._record_watchdog = QTimer()
         self._record_watchdog.setInterval(150)
         self._record_watchdog.timeout.connect(self._check_recording)
@@ -350,6 +351,7 @@ class OverlayWidget(QWidget):
         # recording has no keys down by design.
         self._recording_by_hotkey = by_hotkey
         self._keys_up_polls = 0
+        self._keys_seen_held = False
         self._record_watchdog.start()
         self._recording_start = time.monotonic()
         self._caption.hide_caption()  # clear any stale caption
@@ -406,6 +408,13 @@ class OverlayWidget(QWidget):
         if held is False:
             self._keys_up_polls += 1
             if self._keys_up_polls >= self._KEYS_UP_POLLS_TO_STOP:
+                if not self._keys_seen_held:
+                    # The keys were never actually down: a phantom start from
+                    # stale key state, not a dictation. Pasting it put junk
+                    # into the document (2026-11-05 20:25).
+                    logger.warning("Phantom recording (hotkey never held); discarded")
+                    self._discard_phantom()
+                    return
                 logger.warning(
                     "Hotkey release was missed (keys up for %d polls); stopping after %.1fs",
                     self._keys_up_polls, elapsed,
@@ -413,11 +422,23 @@ class OverlayWidget(QWidget):
                 self._finish_missed_release()
         else:
             self._keys_up_polls = 0
+            if held:
+                self._keys_seen_held = True
 
     def _finish_missed_release(self) -> None:
         if self._hotkey_listener is not None:
             self._hotkey_listener.reset_state()  # so the next press starts cleanly
         self._stop_recording_and_process()
+
+    def _discard_phantom(self) -> None:
+        self._record_watchdog.stop()
+        if self._hotkey_listener is not None:
+            self._hotkey_listener.reset_state()
+        self._is_recording = False
+        self._pipeline.discard_recording()
+        self._caption.hide_caption()
+        self._mic_btn.set_state("idle")
+        self._status.set_state("idle")
 
     def _toggle_recording(self) -> None:
         """Toggle recording via mic button click."""
