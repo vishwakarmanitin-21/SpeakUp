@@ -1628,8 +1628,8 @@ const ITEMS = [
   {
     id: "p58",
     title: "Onboarding: mic choice not saved, no key test, live mode off by default",
-    status: "open",
-    priority: "P1",
+    status: "in-progress",
+    priority: "P2",
     kind: "bug",
     category: "distribution",
     pillars: ["effortless","reliability"],
@@ -1638,7 +1638,7 @@ const ITEMS = [
     summary: "src/ui/components/onboarding_dialog.py ~248-259 discards the microphone the user tested; there is no input_device setting anywhere (src/audio/recorder.py ~56, src/transcription/deepgram_client.py ~133, src/transcription/realtime_client.py ~191 all use the system default). The wizard has no API-key test; transcription_realtime defaults to false; the wizard text refers to the mode bar, which is hidden.",
     files: ["src/ui/components/onboarding_dialog.py","src/audio/recorder.py","src/transcription/deepgram_client.py","src/transcription/realtime_client.py"],
     linksTo: "p10 (first-run onboarding)",
-    progressNote: "RAISED TO P1 2026-11-05: SpeakUp records from whatever Windows calls the default mic, with no way to choose. On 2026-11-05 that was \"Microphone (2- Usb Audio Device)\" delivering digital silence (-84 dBFS peak, -97 dBFS background) while the built-in Realtek mic was live (-51 dBFS background); every dictation failed. NEXT: an input_device setting with a live level meter in Settings, used by all three capture paths (recorder, Deepgram, OpenAI live).",
+    progressNote: "MIC PART SHIPPED 2026-11-05 in b007c32 (v1.2.18): Settings > Microphone lists the mics with a live level bar and a plain verdict (Silent / Very quiet / Hearing you); the choice is saved by name (input_device), survives Windows' '2-' re-plug renaming, prefers the MME entry over WDM-KS, and is used by all three capture paths; the first-run wizard now saves the mic it tested. Back to P2 for what remains: the wizard still doesn't test the API key, and live transcription is still off by default for new users.",
   },
   {
     id: "p59",

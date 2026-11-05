@@ -71,6 +71,7 @@
 <h2>5. Settings (the gear icon, or tray → Settings)</h2>
 <table>
 <tr><th>Setting</th><th>What it does</th></tr>
+<tr><td>Microphone</td><td>Which mic SpeakUp records from. The bar moves when you speak and the line below says <strong>Hearing you</strong>, <strong>Very quiet</strong> or <strong>Silent</strong> — check it first if dictation stops working.</td></tr>
 <tr><td>OpenAI API Key</td><td>Your key. <strong>Show</strong> reveals it, <strong>Test</strong> checks it works.</td></tr>
 <tr><td>Clean-up model</td><td>Cleans up your text. <code>gpt-6-luna</code> (cheapest) is the default; <code>gpt-4.1-mini</code> is ~0.2 s faster, costs 4x, and stops working on 14 Jan 2027.</td></tr>
 <tr><td>Anthropic API Key</td><td><em>(Optional)</em> lets Claude clean up, or step in automatically when the main model fails. From console.anthropic.com — a Claude.ai subscription is not an API key.</td></tr>
@@ -115,6 +116,7 @@
 <tr><td>No text appears</td><td>Make sure your cursor is in a text field before releasing the keys.</td></tr>
 <tr><td>Live captions don't appear</td><td>Confirm Live transcription is on and a Deepgram key is saved. If your network can't reach Deepgram it falls back to OpenAI; try DNS <code>1.1.1.1</code> / <code>8.8.8.8</code>.</td></tr>
 <tr><td>Microphone error</td><td>Check your mic is connected and not in use by another app.</td></tr>
+<tr><td>"Your microphone is silent or very quiet" / random words pasted</td><td>SpeakUp is recording from a mic that isn't hearing you. Open Settings → <strong>Microphone</strong>, speak, and pick a mic whose bar moves and says <strong>Hearing you</strong>.</td></tr>
 <tr><td>Start fresh</td><td>Delete the <code>%APPDATA%\SpeakUp</code> folder; the app will prompt for your key again.</td></tr>
 </table>
 

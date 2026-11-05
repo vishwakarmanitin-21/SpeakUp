@@ -64,6 +64,7 @@ you can also choose Email, LinkedIn Post, PRD, Structured Notes, and more.
 
 | Setting | What it does |
 |---|---|
+| **Microphone** | Which mic SpeakUp records from. "Windows default" follows Windows Sound settings; picking one keeps SpeakUp on it. The bar under it moves when you speak, and the line below says **Hearing you**, **Very quiet** or **Silent** — check it first if dictation stops working. |
 | **OpenAI API Key** | Your key. Use **Show** to reveal it, **Test** to check it works. |
 | **Clean-up model** | The model that cleans up your text. `gpt-6-luna` (cheapest) is the default; `gpt-4.1-mini` is about a fifth of a second faster but costs 4x and stops working on 14 Jan 2027. |
 | **Anthropic API Key** | *(Optional)* lets Claude clean up your text, or step in automatically when the main model fails. Get it from console.anthropic.com — a Claude.ai subscription is not an API key. |
@@ -135,6 +136,7 @@ SpeakUp uses OpenAI for the cleanup and (by default) the speech-to-text. Recomme
 | The hotkey doesn't trigger | Settings → change the **Hotkey** to something else (e.g. `ctrl+shift+space`). |
 | No text appears | Make sure your cursor is in a text field before you release the keys. |
 | Microphone error | Check your mic is connected and not in use by another app. |
+| "Your microphone is silent or very quiet" / random words pasted | SpeakUp is recording from a mic that isn't hearing you (muted, volume at zero, or the wrong one). Open Settings → **Microphone**, speak, and pick a mic whose bar moves and says **Hearing you**. |
 | Want to start fresh | Delete the `%APPDATA%\SpeakUp` folder; the app will prompt for your key again. |
 
 ---
