@@ -1,7 +1,7 @@
 """Single source of truth for the app version and authorship."""
 from __future__ import annotations
 
-__version__ = "1.2.17"
+__version__ = "1.2.18"
 
 APP_NAME = "SpeakUp"
 AUTHOR = "Nitin Vishwakarma"
